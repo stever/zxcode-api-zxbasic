@@ -7,7 +7,9 @@ RUN apt-get update \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
+# Pin pip to the pre-24.1 era: the ancient FastAPI/uvicorn stack has legacy
+# metadata that pip >= 24.1 rejects. (The durable fix is modernising the deps.)
+RUN pip install --no-cache-dir "pip<24.1" \
     && pip install --no-cache-dir -r requirements.txt
 
 # Runtime: minimal official slim base, no build tools.
@@ -27,6 +29,9 @@ RUN groupadd -g 1000 zxbasic \
 
 WORKDIR /app
 COPY --chown=zxbasic:zxbasic . /app/
+# zxbc writes the compiled .tap into the working dir, so /app itself must be
+# writable by the non-root user (WORKDIR creates the dir owned by root).
+RUN chown zxbasic:zxbasic /app
 USER zxbasic
 
 EXPOSE 80
