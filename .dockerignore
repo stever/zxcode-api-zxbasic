@@ -2,3 +2,12 @@
 /**/.pytest_cache/
 /**/__pycache__/
 /**/venv/
+.git/
+.gitignore
+test/
+img/
+*.md
+CLAUDE.md
+LICENSE.txt
+Dockerfile
+.dockerignore
