@@ -1,20 +1,15 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
-
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 from src.api import check
 from src.api.errmsg import error
-
-from .symbol_ import Symbol
-from .number import SymbolNUMBER
-from .var import SymbolVAR
+from src.api.utils import eval_to_num
+from src.symbols.number import SymbolNUMBER
+from src.symbols.symbol_ import Symbol
 
 
 class SymbolBOUND(Symbol):
@@ -34,7 +29,7 @@ class SymbolBOUND(Symbol):
         assert isinstance(upper, int)
         assert upper >= lower >= 0
 
-        super(SymbolBOUND, self).__init__()
+        super().__init__()
         self.lower = lower
         self.upper = upper
 
@@ -49,36 +44,31 @@ class SymbolBOUND(Symbol):
             error(lineno, "Array bounds must be constants")
             return None
 
-        if isinstance(lower, SymbolVAR):
-            lower = lower.value
-            if lower is None:  # semantic error
-                error(lineno, "Unknown lower bound for array dimension")
-                return
+        lower_value = eval_to_num(lower.t)
+        if lower_value is None:  # semantic error
+            error(lineno, "Unknown lower bound for array dimension")
+            return None
 
-        if isinstance(upper, SymbolVAR):
-            upper = upper.value
-            if upper is None:  # semantic error
-                error(lineno, "Unknown upper bound for array dimension")
-                return
+        upper_value = eval_to_num(upper.t)
+        if upper_value is None:  # semantic error
+            error(lineno, "Unknown upper bound for array dimension")
+            return None
 
-        lower.value = int(lower.value)
-        upper.value = int(upper.value)
-
-        if lower.value < 0:
+        if lower_value < 0:
             error(lineno, "Array bounds must be greater than 0")
             return None
 
-        if lower.value > upper.value:
+        if lower_value > upper_value:
             error(lineno, "Lower array bound must be less or equal to upper one")
             return None
 
-        return SymbolBOUND(lower.value, upper.value)
+        return SymbolBOUND(lower_value, upper_value)
 
     def __str__(self):
         if self.lower == 0:
-            return "({})".format(self.upper)
+            return f"({self.upper})"
 
-        return "({} TO {})".format(self.lower, self.upper)
+        return f"({self.lower} TO {self.upper})"
 
     def __repr__(self):
         return self.token + str(self)

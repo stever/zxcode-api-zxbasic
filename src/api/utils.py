@@ -1,42 +1,50 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-import os
 import errno
+import os
 import shelve
 import signal
-
+from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from functools import wraps
+from typing import IO, Any, TypeVar
 
-from typing import NamedTuple
-from typing import List
-from typing import Any
-from typing import Optional
-from typing import Callable
-from typing import IO
-from typing import Iterable
-from typing import Union
+from src.api import constants, errmsg, global_
 
-from src import symbols
-
-from src.api import constants
-from src.api import global_
-from src.api import errmsg
-from src.api import check
-
-
-__all__ = ["flatten_list", "open_file", "read_txt_file", "sanitize_filename", "timeout"]
+__all__ = (
+    "chdir",
+    "first",
+    "flatten_list",
+    "open_file",
+    "read_txt_file",
+    "sanitize_filename",
+    "timeout",
+)
 
 __doc__ = """Utils module contains many helpers for several task,
 like reading files or path management"""
 
+
 SHELVE_PATH = os.path.join(constants.ZXBASIC_ROOT, "parsetab", "tabs.dbm")
 SHELVE = shelve.open(SHELVE_PATH)
 
+T = TypeVar("T")
 
-class DataRef(NamedTuple):
-    label: symbols.LABEL
-    datas: List[Any]
+
+def first(iter_: Iterable[T], default: T | None = None) -> T | None:
+    """Return the first element of an Iterable, or None if it's empty or
+    there are no more elements to return."""
+    return next(iter(iter_), default)
+
+
+def sfirst(iter_: Iterable[T]) -> T:
+    """Return the first element of an Iterable, or fails if it's empty"""
+    return next(iter(iter_))
 
 
 def read_txt_file(fname: str) -> str:
@@ -84,7 +92,7 @@ def get_absolute_filename_path(fname: str) -> str:
     return os.path.realpath(os.path.expanduser(fname))
 
 
-def get_relative_filename_path(fname: str, current_dir: str = None) -> str:
+def get_relative_filename_path(fname: str, current_dir: str | None = None) -> str:
     """Given an absolute path, returns it relative to the current directory,
     that is, if the file is in the same folder or any of it children, only
     the path from the current folder onwards is returned. Otherwise, the
@@ -106,7 +114,7 @@ def current_data_label() -> str:
     return f"{global_.DATAS_NAMESPACE}.__DATA__{len(global_.DATAS)}"
 
 
-def flatten_list(x: Iterable[Any], iterables=(list,)) -> List[Any]:
+def flatten_list(x: Iterable[Any], iterables=(list,)) -> list[Any]:
     """Flattens a nested iterable and returns it as a List.
     Nested iterables will be flattened recursively (default only nested lists)
     """
@@ -121,7 +129,7 @@ def flatten_list(x: Iterable[Any], iterables=(list,)) -> List[Any]:
     return result
 
 
-def parse_int(num: Optional[str]) -> Optional[int]:
+def parse_int(num: str | None) -> int | None:
     """Given an integer number, return its value,
     or None if it could not be parsed.
     Allowed formats: DECIMAL, HEXA (0xnnn, $nnnn or nnnnh)
@@ -162,6 +170,20 @@ def parse_int(num: Optional[str]) -> Optional[int]:
     return None
 
 
+def eval_to_num(expr: str) -> int | float | None:
+    """Evaluates the expression and returns the result or None
+    if it was non-numeric."""
+    try:
+        result = eval(expr, {}, {})
+    except (NameError, SyntaxError, ValueError):
+        return None
+
+    if isinstance(result, (int, float)):
+        return result
+
+    return None
+
+
 def load_object(key: str) -> Any:
     return SHELVE[key] if key in SHELVE else None
 
@@ -176,16 +198,7 @@ def get_or_create(key: str, fn: Callable[[], Any]) -> Any:
     return load_object(key) or save_object(key, fn())
 
 
-def get_final_value(symbol: symbols.SYMBOL) -> Any:
-    assert check.is_static(symbol)
-    result = symbol
-    while hasattr(result, "value"):
-        result = result.value
-
-    return result
-
-
-def timeout(seconds: Union[Callable[[], int], int] = 10, error_message=os.strerror(errno.ETIME)):
+def timeout(seconds: Callable[[], int] | int = 10, error_message=os.strerror(errno.ETIME)):
     def decorator(func):
         def _handle_timeout(signum, frame):
             raise TimeoutError(error_message)
@@ -204,5 +217,15 @@ def timeout(seconds: Union[Callable[[], int], int] = 10, error_message=os.strerr
     return decorator
 
 
-def is_vowel(s: str) -> bool:
-    return s.lower in {"a", "e", "i", "o", "u"}
+@contextmanager
+def chdir(path: str):
+    """Context manager to temporarily enter a directory, and return back
+    to the original folder upon exit."""
+    current_path = os.path.abspath(os.getcwd())
+
+    try:
+        os.chdir(path)
+        yield
+
+    finally:
+        os.chdir(current_path)

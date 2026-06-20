@@ -1,44 +1,35 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: et:ts=4:sw=4:
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-#
-# This is the Parser for the ZXBASM (ZXBasic Assembler)
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import os
 
-from typing import Optional
-
-import src.ply.yacc as yacc
 import src.api.utils
-from src.zxbasm import global_ as asm_gl
-
 from src import outfmt
 from src.api import global_ as gl
-
-from src.api.debug import __DEBUG__
 from src.api.config import OPTIONS
-from src.api.errmsg import error
-from src.zxbpp import zxbpp
-
+from src.api.debug import __DEBUG__
+from src.api.errmsg import error, warning
+from src.ply import yacc
 from src.zxbasm import asmlex, basic
+from src.zxbasm import global_ as asm_gl
+from src.zxbasm.asm import Asm, Container
 from src.zxbasm.asmlex import tokens  # noqa
-from src.zxbasm.global_ import DOT
 from src.zxbasm.expr import Expr
-from src.zxbasm.asm import Container, Asm
+from src.zxbasm.global_ import DOT
 from src.zxbasm.memory import Memory
+from src.zxbpp import zxbpp
 
 LEXER = asmlex.Lexer()
 
 ORG = 0  # Origin of CODE
 INITS = []
-MEMORY: Optional[Memory] = None  # Memory for instructions (Will be initialized with a Memory() instance)
+MEMORY: Memory | None = None  # Memory for instructions (Will be initialized with a Memory() instance)
 AUTORUN_ADDR = None  # Where to start the execution automatically
 
 REGS16 = {"BC", "DE", "HL", "SP", "IX", "IY"}  # 16 Bits registers
@@ -81,7 +72,9 @@ def p_start(p):
 
 
 def p_program_endline(p):
-    """endline : END NEWLINE"""
+    """endline : END NEWLINE
+    | endline NEWLINE
+    """
 
 
 def p_program_endline2(p):
@@ -172,11 +165,15 @@ def p_asm_ld8(p):
 
 def p_LDa(p):  # Remaining LD A,... and LD...,A instructions
     """asm : LD A COMMA LP BC RP
+    | LD A COMMA LB BC RB
     | LD A COMMA LP DE RP
+    | LD A COMMA LB DE RB
     | LD LP BC RP COMMA A
+    | LD LB BC RB COMMA A
     | LD LP DE RP COMMA A
+    | LD LB DE RB COMMA A
     """
-    p[0] = Asm(p.lineno(1), "LD " + "".join(p[2:]))
+    p[0] = Asm(p.lineno(1), "LD " + "".join(x.replace("[", "(").replace("]", ")") for x in p[2:]))
 
 
 def p_PROC(p):
@@ -320,7 +317,7 @@ def p_ind8_I(p):
         else:
             first_token = "<nothing>"
         if first_token not in ("-", "+"):
-            error(p.lineno(2), "Unexpected token '{}'. Expected '+' or '-'".format(first_token))
+            error(p.lineno(2), f"Unexpected token '{first_token}'. Expected '+' or '-'")
         sign = "+"
 
     if sign == "-":
@@ -387,25 +384,57 @@ def p_align(p):
 
 
 def p_incbin(p):
-    """asm : INCBIN STRING"""
+    """asm : INCBIN STRING
+    | INCBIN STRING COMMA expr
+    | INCBIN STRING COMMA expr COMMA expr
+    """
+
     try:
         fname = zxbpp.search_filename(p[2], p.lineno(2), local_first=True)
         if not fname:
             p[0] = None
             return
+
         with src.api.utils.open_file(fname, "rb") as f:
             filecontent = f.read()
+
     except IOError:
         error(p.lineno(2), "cannot read file '%s'" % p[2])
         p[0] = None
         return
 
+    offset = 0
+    length = None
+
+    if len(p) > 4:
+        offset = p[4].eval()
+
+    if len(p) > 6:
+        length = p[6].eval()
+        if length < 1:
+            error(p.lineno(5), "INCBIN length must be greater than 0")
+
+    if offset < 0:
+        offset = len(filecontent) + offset
+        if offset < 0 or offset >= len(filecontent):
+            error(p.lineno(4), "INCBIN offset is out of range")
+
+    if length is None:
+        length = len(filecontent) - offset
+
+    if offset + length > len(filecontent):
+        excess = len(filecontent) - (offset + length)
+        warning(p.lineno(5), f"INCBIN length if beyond file length by {excess} bytes")
+
+    filecontent = filecontent[offset : offset + length]
     p[0] = Asm(p.lineno(1), "DEFB", filecontent)
 
 
 def p_ex_sp_reg8(p):
     """asm : EX LP SP RP COMMA reg16i
+    | EX LB SP RB COMMA reg16i
     | EX LP SP RP COMMA HL
+    | EX LB SP RB COMMA HL
     """
     p[0] = Asm(p.lineno(1), "EX (SP)," + p[6])
 
@@ -451,7 +480,7 @@ def p_JP_hl(p):
     | JP LB reg16i RB
     """
     s = "JP "
-    if p[2] in ("(HL)", "[HL]"):
+    if p[2] == "(HL)":
         s += p[2]
     else:
         s += "(%s)" % p[3]
@@ -776,25 +805,33 @@ def p_im(p):
 
 def p_in(p):
     """asm : IN A COMMA LP C RP
+    | IN A COMMA LB C RB
     | IN reg8 COMMA LP C RP
+    | IN reg8 COMMA LB C RB
     """
     p[0] = Asm(p.lineno(1), "IN %s,(C)" % p[2])
 
 
 def p_out(p):
     """asm : OUT LP C RP COMMA A
+    | OUT LB C RB COMMA A
     | OUT LP C RP COMMA reg8
+    | OUT LB C RB COMMA reg8
     """
     p[0] = Asm(p.lineno(1), "OUT (C),%s" % p[6])
 
 
 def p_in_expr(p):
-    """asm : IN A COMMA pexpr"""
+    """asm : IN A COMMA mem_indir
+    | IN A COMMA pexpr
+    """
     p[0] = Asm(p.lineno(1), "IN A,(N)", p[4])
 
 
 def p_out_expr(p):
-    """asm : OUT pexpr COMMA A"""
+    """asm : OUT mem_indir COMMA A
+    | OUT pexpr COMMA A
+    """
     p[0] = Asm(p.lineno(1), "OUT (N),A", p[2])
 
 
@@ -976,7 +1013,7 @@ def assemble(input_):
 def generate_binary(outputfname, format_, progname="", binary_files=None, headless_binary_files=None, emitter=None):
     """Outputs the memory binary to the
     output filename using one of the given
-    formats: tap, tzx or bin
+    formats: tap, tzx, sna, z80 or bin
     """
     global AUTORUN_ADDR
 
@@ -1024,6 +1061,10 @@ def generate_binary(outputfname, format_, progname="", binary_files=None, headle
     if emitter is None:
         if format_ in ("tap", "tzx"):
             emitter = {"tap": outfmt.TAP, "tzx": outfmt.TZX}[format_]()
+        elif format_ == "sna":
+            emitter = outfmt.SnaEmitter()
+        elif format_ == "z80":
+            emitter = outfmt.Z80Emitter()
         else:
             emitter = outfmt.BinaryEmitter()
 

@@ -1,22 +1,28 @@
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-from src.api.identityset import IdentitySet
-from . import common
-from . import errors
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .basicblock import BasicBlock
 
 
-class LabelInfo(object):
-    """Class describing label information"""
+@dataclass
+class LabelInfo:
+    """Class describing label information
+    Stores the label name, the address counter into memory (rather useless)
+    and which basic block contains it.
+    """
 
-    def __init__(self, label, addr, basic_block=None, position=0):
-        """Stores the label name, the address counter into memory (rather useless)
-        and which basic block contains it.
-        """
-        self.label = label
-        self.addr = addr
-        self.basic_block = basic_block
-        self.position = position  # Position within the block
-        self.used_by = IdentitySet()  # Which BB uses this label, if any
-
-        if label in common.LABELS:
-            raise errors.DuplicatedLabelError(label)
+    label: str
+    addr: int  # Memory address or 0
+    basic_block: BasicBlock | None = None  # Basic Block this label is in
+    position: int = 0  # Position within the Basic Block
+    used_by: set[BasicBlock] = field(default_factory=set)  # Which BB uses this label, if any

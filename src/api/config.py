@@ -1,43 +1,42 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-import os
-import sys
 import configparser
 import enum
+import os
+import sys
+from collections.abc import Callable
+from enum import StrEnum
 
-from enum import Enum
-from typing import Dict, Callable
-from src.api import errmsg
+from src.api import errmsg, global_, options, python_version_check
+from src.api.options import ANYTYPE, Action
 
 # The options container
-
-from src.api import options
-from src.api import global_
-
-from src.api.options import ANYTYPE, Action
 
 
 # ------------------------------------------------------
 # Common setup and configuration for all tools
 # ------------------------------------------------------
 @enum.unique
-class ConfigSections(str, Enum):
+class ConfigSections(StrEnum):
     ZXBC = "zxbc"
     ZXBASM = "zxbasm"
     ZXBPP = "zxbpp"
 
 
 @enum.unique
-class OPTION(str, Enum):
+class OptimizationStrategy(StrEnum):
+    Size = "size"
+    Speed = "speed"
+    Auto = "auto"
+
+
+@enum.unique
+class OPTION(StrEnum):
     OUTPUT_FILENAME = "output_filename"
     INPUT_FILENAME = "input_filename"
     STDERR_FILENAME = "stderr_filename"
@@ -82,6 +81,9 @@ class OPTION(str, Enum):
     ASM_ZXNEXT = "zxnext"
     FORCE_ASM_BRACKET = "force_asm_brackets"
 
+    # Optimization Preferences
+    OPT_STRATEGY = "opt_strategy"
+
 
 OPTIONS = options.Options()
 OPTIONS_NOT_SAVED = {
@@ -97,11 +99,16 @@ OPTIONS_NOT_SAVED = {
 }
 
 
-def load_config_from_file(filename: str, section: str, options_: options.Options = None, stop_on_error=True) -> bool:
+def load_config_from_file(
+    filename: str, section: ConfigSections, options_: options.Options | None = None, *, stop_on_error: bool = True
+) -> bool:
     """Opens file and read options from the given section. If stop_on_error is set,
-    the program stop if any error is found. Otherwise the result of the operation will be
+    the program stop if any error is found. Otherwise, the result of the operation will be
     returned (True on success, False on failure)
     """
+    assert isinstance(section, ConfigSections)
+    section_ = section.value
+
     if options_ is None:
         options_ = OPTIONS
 
@@ -119,25 +126,30 @@ def load_config_from_file(filename: str, section: str, options_: options.Options
             sys.exit(1)
         return False
 
-    if section not in cfg.sections():
-        errmsg.msg_output(f"Section '{section}' not found in config file '{filename}'")
+    if section_ not in cfg.sections():
+        errmsg.msg_output(f"Section '{section_}' not found in config file '{filename}'")
         if stop_on_error:
             sys.exit(1)
         return False
 
-    parsing: Dict[type, Callable] = {int: cfg.getint, float: cfg.getfloat, bool: cfg.getboolean}
+    parsing: dict[type, Callable] = {int: cfg.getint, float: cfg.getfloat, bool: cfg.getboolean}
 
-    for opt in cfg.options(section):
+    for opt in cfg.options(section_):
         options_[opt].value = parsing.get(options_[opt].type, cfg.get)(section=section, option=opt)
 
     return True
 
 
-def save_config_into_file(filename: str, section: str, options_: options.Options = None, stop_on_error=True) -> bool:
+def save_config_into_file(
+    filename: str, section: ConfigSections, options_: options.Options | None = None, *, stop_on_error: bool = True
+) -> bool:
     """Save config into config ini file into the given section. If stop_on_error is set,
-    the program stop. Otherwise the result of the operation will be
+    the program stop. Otherwise, the result of the operation will be
     returned (True on success, False on failure)
     """
+    assert isinstance(section, ConfigSections)
+    section_ = section.value
+
     if options_ is None:
         options_ = OPTIONS
 
@@ -151,16 +163,16 @@ def save_config_into_file(filename: str, section: str, options_: options.Options
                 sys.exit(1)
             return False
 
-    cfg[section] = {}
+    cfg[section_] = {}
     for opt_name, opt in options_().items():
         if opt_name.startswith("__") or opt.value is None or opt_name in OPTIONS_NOT_SAVED:
             continue
 
-        if opt.type == bool:
-            cfg[section][opt_name] = str(opt.value).lower()
+        if opt.type is bool:
+            cfg[section_][opt_name] = str(opt.value).lower()
             continue
 
-        cfg[section][opt_name] = str(opt.value)
+        cfg[section_][opt_name] = str(opt.value)
 
     try:
         with open(filename, "wt", encoding="utf-8") as f:
@@ -174,8 +186,9 @@ def save_config_into_file(filename: str, section: str, options_: options.Options
     return True
 
 
-def init():
+def init() -> None:
     """Default Options and Compilation Flags"""
+    python_version_check.init()
     OPTIONS(Action.CLEAR)
 
     OPTIONS(Action.ADD, name=OPTION.OUTPUT_FILENAME, type=str)
@@ -220,6 +233,15 @@ def init():
 
     # Whether to show WXXX warning codes or not
     OPTIONS(Action.ADD, name=OPTION.HIDE_WARNING_CODES, type=bool, default=False, ignore_none=True)
+
+    # Optimization preferences
+    OPTIONS(
+        Action.ADD,
+        name=OPTION.OPT_STRATEGY,
+        type=OptimizationStrategy,
+        default=OptimizationStrategy.Auto,
+        ignore_none=True,
+    )
 
     OPTIONS(
         Action.ADD,

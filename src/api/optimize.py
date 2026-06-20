@@ -1,25 +1,27 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-from typing import NamedTuple
-from typing import Optional
-from typing import Set
+import symtable
+from collections.abc import Generator
+from typing import Any, NamedTuple
 
+import src.api.check as chk
 import src.api.global_ as gl
+import src.api.symboltable
 import src.api.symboltable.symboltable
 import src.api.utils
-import src.api.symboltable
-import src.api.check as chk
-
-from src import symbols
-from src.ast import NodeVisitor
 from src.api import errmsg
-
-from src.api.constants import TYPE, SCOPE, CLASS, CONVENTION
+from src.api.config import OPTIONS
+from src.api.constants import CLASS, CONVENTION, SCOPE, TYPE
 from src.api.debug import __DEBUG__
 from src.api.errmsg import warning_not_used
-
-from src.api.config import OPTIONS
+from src.ast import Ast, NodeVisitor
+from src.symbols import sym as symbols
+from src.symbols.id_ import ref
 
 
 class ToVisit(NamedTuple):
@@ -63,11 +65,11 @@ class GenericVisitor(NodeVisitor):
         if node.obj is None:
             return None
 
-        __DEBUG__(f"Optimizer: Visiting node {str(node.obj)}", 1)
+        __DEBUG__(f"Optimizer: Visiting node {node.obj!s}[{node.obj.token}]", 1)
         meth = getattr(self, f"visit_{node.obj.token}", self.generic_visit)
         return meth(node.obj)
 
-    def generic_visit(self, node: symbols.SYMBOL):
+    def generic_visit(self, node: Ast) -> Generator[Ast | None, Any, None]:
         for i, child in enumerate(node.children):
             node.children[i] = yield self.visit(child)
 
@@ -90,11 +92,12 @@ class UniqueVisitor(GenericVisitor):
 class UnreachableCodeVisitor(UniqueVisitor):
     """Visitor to optimize unreachable code (and prune it)."""
 
-    def visit_FUNCTION(self, node: symbols.FUNCTION):
+    def visit_FUNCTION(self, node: symbols.ID):
+        assert node._ref
         if (
             node.class_ == CLASS.function
             and node.body.token == "BLOCK"
-            and (not node.body or node.body[-1].token != "RETURN")
+            and (not node.body or node.body[-1].token not in {"CHKBREAK", "LABEL", "RETURN"})
         ):
             # String functions must *ALWAYS* return a value.
             # Put a sentinel ("dummy") return "" sentence that will be removed if other is detected
@@ -112,7 +115,7 @@ class UnreachableCodeVisitor(UniqueVisitor):
         i = 0
         while i < len(node) - 1:
             child = node[i]
-            if child.token == "LABEL" and node[i + 1].token == "CHKBREAK":
+            if child.token in ("LABEL", "RETURN") and node[i + 1].token == "CHKBREAK":
                 node.pop(i + 1)
                 continue
             i += 1
@@ -158,12 +161,8 @@ class UnreachableCodeVisitor(UniqueVisitor):
 class FunctionGraphVisitor(UniqueVisitor):
     """Mark FUNCALLS"""
 
-    def _get_calls_from_children(self, node):
-        return [
-            symbol
-            for symbol in self.filter_inorder(node, lambda x: isinstance(x, (symbols.FUNCCALL, symbols.CALL)))
-            if not isinstance(symbol, symbols.ARRAYACCESS)
-        ]
+    def _get_calls_from_children(self, node: symtable.Symbol):
+        return list(self.filter_inorder(node, lambda x: x.token in ("CALL", "FUNCCALL")))
 
     def _set_children_as_accessed(self, node: symbols.SYMBOL):
         parent = node.get_parent(symbols.FUNCDECL)
@@ -208,7 +207,7 @@ class OptimizerVisitor(UniqueVisitor):
     def visit_ADDRESS(self, node):
         if node.operand.token != "ARRAYACCESS":
             if not chk.is_dynamic(node.operand):
-                node = symbols.CONST(node, node.lineno)
+                node = symbols.CONSTEXPR(node, node.lineno)
         elif node.operand.offset is not None:  # A constant access
             if node.operand.scope == SCOPE.global_:  # Calculate offset if global variable
                 node = symbols.BINARY.make_node(
@@ -286,13 +285,11 @@ class OptimizerVisitor(UniqueVisitor):
         node = yield self.generic_visit(node)
 
         if all(chk.is_static(arg.value) for arg in node.operand):
-            yield symbols.STRING(
-                "".join(chr(src.api.utils.get_final_value(x.value) & 0xFF) for x in node.operand), node.lineno
-            )
+            yield symbols.STRING("".join(chr(x.value.value & 0xFF) for x in node.operand), node.lineno)
         else:
             yield node
 
-    def visit_CONST(self, node):
+    def visit_CONSTEXPR(self, node):
         if chk.is_number(node.expr) or chk.is_const(node.expr):
             yield node.expr
         else:
@@ -300,12 +297,12 @@ class OptimizerVisitor(UniqueVisitor):
 
     def visit_FUNCCALL(self, node):
         node.args = yield self.generic_visit(node.args)  # Avoid infinite recursion not visiting node.entry
-        self._check_if_any_arg_is_an_array_and_needs_lbound_or_ubound(node.entry.params, node.args)
+        self._check_if_any_arg_is_an_array_and_needs_lbound_or_ubound(node.entry.ref.params, node.args)
         yield node
 
     def visit_CALL(self, node):
         node.args = yield self.generic_visit(node.args)  # Avoid infinite recursion not visiting node.entry
-        self._check_if_any_arg_is_an_array_and_needs_lbound_or_ubound(node.entry.params, node.args)
+        self._check_if_any_arg_is_an_array_and_needs_lbound_or_ubound(node.entry.ref.params, node.args)
         yield node
 
     def visit_FUNCDECL(self, node):
@@ -315,7 +312,7 @@ class OptimizerVisitor(UniqueVisitor):
             return
 
         if self.O_LEVEL > 1 and node.params_size == node.locals_size == 0:
-            node.entry.convention = CONVENTION.fastcall
+            node.entry.ref.convention = CONVENTION.fastcall
 
         node.children[1] = yield ToVisit(node.entry)
         yield node
@@ -324,16 +321,20 @@ class OptimizerVisitor(UniqueVisitor):
         lvalue = node.children[0]
         if self.O_LEVEL > 1 and not lvalue.accessed:
             warning_not_used(lvalue.lineno, lvalue.name, fname=lvalue.filename)
-            block = symbols.BLOCK(
-                *[
-                    symbols.CALL(x.entry, x.args, x.lineno, lvalue.filename)
-                    for x in self.filter_inorder(
-                        node.children[1],
-                        lambda x: isinstance(x, symbols.FUNCCALL),
-                        lambda x: not isinstance(x, symbols.FUNCTION),
-                    )
-                ]
-            )
+            nodes = [
+                symbols.CALL(x.entry, x.args, x.lineno, lvalue.filename) if x.token == "FUNCCALL" else x
+                for x in self.filter_inorder(
+                    node.children[1],
+                    lambda x: x.token in ("FUNCCALL", "BUILTIN"),
+                    lambda x: x.token != "FUNCTION",
+                )
+                if x.token == "FUNCCALL" or getattr(x, "fname") in {"IN", "RND", "USR"}
+            ]
+            for node_ in nodes:
+                if node_.token == "BUILTIN":
+                    node_.discard_result = True
+
+            block = symbols.BLOCK(*nodes)
             yield block
         else:
             yield (yield self.generic_visit(node))
@@ -347,8 +348,8 @@ class OptimizerVisitor(UniqueVisitor):
                     symbols.CALL(x.entry, x.args, x.lineno, lvalue.filename)
                     for x in self.filter_inorder(
                         node.children[1],
-                        lambda x: isinstance(x, symbols.FUNCCALL),
-                        lambda x: not isinstance(x, symbols.FUNCTION),
+                        lambda x: x.token == "FUNCCALL",
+                        lambda x: x.token != "FUNCTION",
                     )
                 ]
             )
@@ -429,10 +430,10 @@ class OptimizerVisitor(UniqueVisitor):
         body_ = node.children[4]
 
         if self.O_LEVEL > 0 and chk.is_number(from_, to_, step_) and not chk.is_block_accessed(body_):
-            if from_ > to_ and step_ > 0:
+            if from_.value > to_.value and step_.value > 0:
                 yield self.NOP
                 return
-            if from_ < to_ and step_ < 0:
+            if from_.value < to_.value and step_.value < 0:
                 yield self.NOP
                 return
 
@@ -445,7 +446,7 @@ class OptimizerVisitor(UniqueVisitor):
         else:
             yield node
 
-    def generic_visit(self, node: symbols.SYMBOL):
+    def generic_visit(self, node: Ast):
         for i, child in enumerate(node.children):
             node.children[i] = yield ToVisit(child)
 
@@ -462,40 +463,43 @@ class OptimizerVisitor(UniqueVisitor):
             if not param.byref or param.class_ != CLASS.array:
                 continue
 
-            if arg.value.lbound_used and arg.value.ubound_used:
+            if arg.value.ref.lbound_used and arg.value.ref.ubound_used:
                 continue
 
             self._update_bound_status(arg.value)
 
-    def _update_bound_status(self, arg: symbols.VARARRAY):
-        old_lbound_used = arg.lbound_used
-        old_ubound_used = arg.ubound_used
+    def _update_bound_status(self, arg: symbols.ID):
+        assert arg.token == "VARARRAY"
+        arg_ref = arg.ref
+        assert isinstance(arg_ref, ref.ArrayRef)
+        old_lbound_used = arg_ref.lbound_used
+        old_ubound_used = arg_ref.ubound_used
 
         for p in arg.requires:
-            arg.lbound_used = arg.lbound_used or p.lbound_used
-            arg.ubound_used = arg.ubound_used or p.ubound_used
+            arg_ref.lbound_used = arg_ref.lbound_used or p.ref.lbound_used
+            arg_ref.ubound_used = arg_ref.ubound_used or p.ref.ubound_used
 
-        if old_lbound_used != arg.lbound_used or old_ubound_used != arg.ubound_used:
+        if old_lbound_used != arg_ref.lbound_used or old_ubound_used != arg_ref.ubound_used:
             if arg.scope == SCOPE.global_:
                 return
 
-            if arg.scope == SCOPE.local and not arg.byref:
-                arg.scopeRef.owner.locals_size = src.api.symboltable.symboltable.SymbolTable.compute_offsets(
-                    arg.scopeRef
+            if arg.scope == SCOPE.local and not arg_ref.byref:
+                arg.scope_ref.owner.locals_size = src.api.symboltable.symboltable.SymbolTable.compute_offsets(
+                    arg.scope_ref
                 )
 
 
 class VarDependency(NamedTuple):
-    parent: symbols.VAR
-    dependency: symbols.VAR
+    parent: symbols.ID
+    dependency: symbols.ID
 
 
 class VariableVisitor(GenericVisitor):
-    _original_variable: Optional[symbols.VAR] = None
+    _original_variable: symbols.ID | None = None
     _parent_variable = None
-    _visited: Set[symbols.SYMBOL] = set()
+    _visited: set[symbols.SYMBOL] = set()
 
-    def generic_visit(self, node: symbols.SYMBOL):
+    def generic_visit(self, node: Ast):
         if node not in VariableVisitor._visited:
             VariableVisitor._visited.add(node)
             for i in range(len(node.children)):
@@ -507,16 +511,17 @@ class VariableVisitor(GenericVisitor):
         if var_dependency.dependency == VariableVisitor._original_variable:
             src.api.errmsg.error(
                 VariableVisitor._original_variable.lineno,
-                "Circular dependency between '{}' and '{}'".format(
-                    VariableVisitor._original_variable.name, var_dependency.parent
+                (
+                    f"Circular dependency between '{VariableVisitor._original_variable.name}'"
+                    f" and '{var_dependency.parent}'"
                 ),
             )
             return True
 
         return False
 
-    def get_var_dependencies(self, var_entry: symbols.VAR):
-        visited: Set[symbols.VAR] = set()
+    def get_var_dependencies(self, var_entry: symbols.ID):
+        visited: set[symbols.ID] = set()
         result = set()
 
         def visit_var(entry):
@@ -524,18 +529,15 @@ class VariableVisitor(GenericVisitor):
                 return
 
             visited.add(entry)
-            if not isinstance(entry, symbols.VAR):
+            if entry.token != "VAR":
                 for child in entry.children:
                     visit_var(child)
-                    if isinstance(child, symbols.VAR):
+                    if child.token in ("FUNCTION", "LABEL", "VAR", "VARARRAY"):
                         result.add(VarDependency(parent=VariableVisitor._parent_variable, dependency=child))
                 return
 
             VariableVisitor._parent_variable = entry
-            if entry.alias is not None:
-                result.add(VarDependency(parent=entry, dependency=entry.alias))
-                visit_var(entry.alias)
-            elif entry.addr is not None:
+            if entry.addr is not None:
                 visit_var(entry.addr)
 
         visit_var(var_entry)

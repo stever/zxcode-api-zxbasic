@@ -1,41 +1,28 @@
-#!/usr/bin/python3
-# -*- coding: utf-8 -*-
-
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-#
-# This is the Lexer for the ZXBppASM (ZXBASM Preprocessor)
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import os
 import sys
-
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum, unique
 
-from typing import Iterable
-from typing import List
-from typing import Optional
-from typing import Tuple
-
-from src.ply import lex
-
 from src.api import utils
-
+from src.ply import lex
 from src.zxbpp.prepro import output
-
-from src.zxbpp.prepro.definestable import DefinesTable
 from src.zxbpp.prepro.builtinmacro import BuiltinMacro
+from src.zxbpp.prepro.definestable import DefinesTable
 
 EOL = "\n"
 
 # Names for std input/output
-STDOUT = "<stdout>"
-STDIN = "<stdin>"
-STDERR = "<stderr>"
+STDERR = "(stderr)"
+STDIN = "(stdin)"
+STDOUT = "(stdout)"
 
 
 @unique
@@ -62,7 +49,7 @@ class ReservedDirectives(str, Enum):
 class LexerState:
     filename: str
     lineno: int
-    lex: Optional[lex.Lexer]
+    lex: lex.Lexer | None
     input_data: str
 
 
@@ -82,22 +69,26 @@ class BaseLexer:
     }
 
     def __init__(
-        self, tokens: Iterable[str], states: Iterable[Tuple[str, str]], defines_table: Optional[DefinesTable] = None
+        self, tokens: Iterable[str], states: Iterable[tuple[str, str]], defines_table: DefinesTable | None = None
     ):
         """Creates a new GLOBAL lexer instance"""
-        self.lex: Optional[lex.Lexer] = None
-        self.filestack: List[LexerState] = []  # Current filename, and line number being parsed
+        self.lex: lex.Lexer | None = None
+        self.filestack: list[LexerState] = []  # Current filename, and line number being parsed
         self.input_data: str = ""
         self.tokens = tuple(tokens)
         self.states = tuple(states)
         self.next_token = None  # if set to something, this will be returned once
         self.defines_table = defines_table
 
-        if defines_table is None:
+        if self.defines_table is None:
             return
 
         for macro_name, macro_func in self.builtin_macros.items():
             self.defines_table[macro_name] = BuiltinMacro(macro_name=macro_name, func=macro_func)
+
+    def set_macro(self, macro_name: str, func: Callable[[str], str]) -> None:
+        assert self.defines_table is not None
+        self.defines_table[macro_name] = func
 
     def put_current_line(self, prefix: str = "", suffix: str = "") -> str:
         """Returns line and file for include / end of include sequences."""
@@ -106,7 +97,7 @@ class BaseLexer:
 
     def include(self, filename: str) -> str:
         """Changes FILENAME and line count"""
-        if filename != STDIN and filename in set(x.filename for x in self.filestack):  # Already included?
+        if filename != STDIN and filename in {x.filename for x in self.filestack}:  # Already included?
             self.warning("Recursive inclusion")
 
         self.filestack.append(LexerState(filename, 1, self.lex, self.input_data))
@@ -189,7 +180,7 @@ class BaseLexer:
         assert self.lex is not None
         self.lex.lineno = value
 
-    def token(self) -> Optional[lex.LexToken]:
+    def token(self) -> lex.LexToken | None:
         """Returns a token from the current input. If tok is None
         from the current input, it means we are at end of current input
         (e.g. at end of include file). If so, closes the current input
@@ -247,7 +238,7 @@ class BaseLexer:
         output.warning(lineno, msg)
 
     @property
-    def current_file(self) -> Optional[str]:
+    def current_file(self) -> str | None:
         if not self.filestack:
             return None
 

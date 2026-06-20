@@ -1,24 +1,18 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
-
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import src.api.global_ as gl
-import src.api.config as config
-import src.api.check as check
-
-from .symbol_ import Symbol
-from .number import SymbolNUMBER as NUMBER
-from .typecast import SymbolTYPECAST as TYPECAST
-from .binary import SymbolBINARY as BINARY
-from .string_ import SymbolSTRING as STRING
-from .type_ import Type
+from src.api import check, config
+from src.symbols.binary import SymbolBINARY as BINARY
+from src.symbols.number import SymbolNUMBER as NUMBER
+from src.symbols.string_ import SymbolSTRING as STRING
+from src.symbols.symbol_ import Symbol
+from src.symbols.type_ import Type
+from src.symbols.typecast import SymbolTYPECAST as TYPECAST
 
 
 class SymbolSTRSLICE(Symbol):
@@ -106,10 +100,9 @@ class SymbolSTRSLICE(Symbol):
             if lo > up:
                 return STRING("", lineno)
 
-            if s.token == "STRING":  # A constant string? Recalculate it now
+            if s.token in ("STRING", "CONST"):  # A constant string? Recalculate it now
                 up += 1
-                st = s.value.ljust(up)  # Procrustean filled (right)
-                return STRING(st[lo:up], lineno)
+                return STRING(s.value[lo:up], lineno)
 
             # a$(0 TO INF.) = a$
             if lo == gl.MIN_STRSLICE_IDX and up == gl.MAX_STRSLICE_IDX:

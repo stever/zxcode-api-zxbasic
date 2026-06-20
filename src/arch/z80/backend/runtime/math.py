@@ -1,4 +1,9 @@
-# Runtime labels
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 from .namespace import NAMESPACE
 
@@ -26,15 +31,15 @@ class MathLabels:
 
 
 REQUIRED_MODULES = {
-    MathLabels.ACS: "acos.asm",
-    MathLabels.ASN: "asin.asm",
-    MathLabels.ATN: "atan.asm",
-    MathLabels.COS: "cos.asm",
-    MathLabels.SIN: "sin.asm",
-    MathLabels.TAN: "tan.asm",
-    MathLabels.EXP: "exp.asm",
-    MathLabels.LN: "logn.asm",
-    MathLabels.SQR: "sqrt.asm",
+    MathLabels.ACS: "math/acos.asm",
+    MathLabels.ASN: "math/asin.asm",
+    MathLabels.ATN: "math/atan.asm",
+    MathLabels.COS: "math/cos.asm",
+    MathLabels.SIN: "math/sin.asm",
+    MathLabels.TAN: "math/tan.asm",
+    MathLabels.EXP: "math/exp.asm",
+    MathLabels.LN: "math/logn.asm",
+    MathLabels.SQR: "math/sqrt.asm",
     MathLabels.SGNI8: "sgni8.asm",
     MathLabels.SGNU8: "sgnu8.asm",
     MathLabels.SGNI16: "sgni16.asm",

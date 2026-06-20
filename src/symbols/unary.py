@@ -1,31 +1,26 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-import src.api.check as check
-
-from .symbol_ import Symbol
-from .number import SymbolNUMBER
-from .string_ import SymbolSTRING
-from .typecast import SymbolTYPECAST
-from .type_ import SymbolTYPE
-from .type_ import Type as TYPE
+from src.api import check
+from src.symbols.number import SymbolNUMBER
+from src.symbols.string_ import SymbolSTRING
+from src.symbols.symbol_ import Symbol
+from src.symbols.type_ import SymbolTYPE
+from src.symbols.type_ import Type as TYPE
+from src.symbols.typecast import SymbolTYPECAST
 
 
 class SymbolUNARY(Symbol):
-    """Defines an UNARY EXPRESSION e.g. (a + b)
+    """Defines a UNARY EXPRESSION e.g. (a + b)
     Only the operator (e.g. 'PLUS') is stored.
     """
 
     def __init__(self, oper, operand, lineno, type_=None):
-        super(SymbolUNARY, self).__init__(operand)
+        super().__init__(operand)
         self.lineno = lineno
         self.operator = oper
         self._type = type_
@@ -72,7 +67,7 @@ class SymbolUNARY(Symbol):
         if func is not None:  # Try constant-folding
             if check.is_number(operand):  # e.g. ABS(-5)
                 return SymbolNUMBER(func(operand.value), lineno=lineno)
-            elif check.is_string(operand):  # e.g. LEN("a")
+            if check.is_string(operand):  # e.g. LEN("a")
                 return SymbolSTRING(func(operand.text), lineno=lineno)
 
         if type_ is None:
@@ -83,6 +78,6 @@ class SymbolUNARY(Symbol):
                 type_ = type_.to_signed()
                 operand = SymbolTYPECAST.make_node(type_, operand, lineno)
         elif operator == "NOT":
-            type_ = TYPE.ubyte
+            type_ = TYPE.boolean
 
         return cls(operator, operand, lineno, type_)

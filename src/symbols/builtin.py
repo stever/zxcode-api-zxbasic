@@ -1,31 +1,28 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
+from src.api import check
 
-from .symbol_ import Symbol
 from .number import SymbolNUMBER
+from .symbol_ import Symbol
 from .type_ import SymbolTYPE
-
-import src.api.check as check
 
 
 class SymbolBUILTIN(Symbol):
-    """Defines an BUILTIN function e.g. INKEY$(), RND() or LEN"""
+    """Defines a BUILTIN function e.g. INKEY$(), RND() or LEN"""
 
     def __init__(self, lineno, fname, type_=None, *operands):
         assert isinstance(lineno, int)
         assert type_ is None or isinstance(type_, SymbolTYPE)
-        super(SymbolBUILTIN, self).__init__(*operands)
+        super().__init__(*operands)
         self.lineno = lineno
         self.fname = fname
         self.type_ = type_
+        self.discard_result = False  # Whether to discard the return value of the function
 
     @property
     def type_(self):
@@ -55,7 +52,7 @@ class SymbolBUILTIN(Symbol):
     def operands(self, value):
         for x in value:
             assert isinstance(x, Symbol)
-        self.children = [x for x in value]
+        self.children = list(value)
 
     @property
     def size(self):

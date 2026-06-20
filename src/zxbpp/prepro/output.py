@@ -1,42 +1,40 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-""" Common output functions for the preprocessor.
+"""Common output functions for the preprocessor.
 Need the global OPTION object
 """
 
-from typing import List
-from typing import Optional
-
 import src.api.errmsg
-
 from src.api.errmsg import register_warning
 
-
-CURRENT_FILE: List[str] = []  # The current file being processed
+CURRENT_FILE: list[str] = []  # The current file being processed
 
 
 # Wraps error() and warning(), for future local features
-def error(lineno: int, msg: str, fname: Optional[str] = None):
+def error(lineno: int, msg: str, fname: str | None = None):
     src.api.errmsg.error(lineno, msg, fname=fname)
 
 
-def warning(lineno: int, msg: str, fname: Optional[str] = None):
+def warning(lineno: int, msg: str, fname: str | None = None):
     src.api.errmsg.warning(lineno, msg, fname=fname)
 
 
 # Local warnings
 @register_warning("500")
-def warning_overwrite_builtin_macro(macro_name: str, lineno: int, fname: Optional[str] = None):
+def warning_overwrite_builtin_macro(macro_name: str, lineno: int, fname: str | None = None):
     warning(lineno, f'builtin macro "{macro_name}" redefined', fname=fname)
 
 
 @register_warning("510")
-def warning_redefined_macro(macro_name: str, lineno: int, fname: Optional[str] = None):
+def warning_redefined_macro(macro_name: str, lineno: int, fname: str | None = None):
     warning(lineno, f'"{macro_name}" redefined (previous definition at {fname}:{lineno})', fname=fname)
 
 
 @register_warning("520")
-def warning_missing_whitespace_after_macro(lineno: int, fname: Optional[str] = None):
+def warning_missing_whitespace_after_macro(lineno: int, fname: str | None = None):
     warning(lineno, "missing whitespace after macro name", fname=fname)

@@ -1,19 +1,18 @@
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import re
-
-from typing import Optional
-from typing import List
-from typing import Union
-from typing import Set
+from functools import cached_property
 
 from src.api.utils import flatten_list
-from src.zxbasm import asmlex
-
-import src.arch.z80.backend.common
-
+from src.arch.z80.backend.common import ASMS
 from src.arch.z80.optimizer import helpers
 from src.arch.z80.optimizer.asm import Asm
+from src.zxbasm import asmlex
 
 
 class MemCell:
@@ -22,20 +21,24 @@ class MemCell:
     the instruction.
     """
 
-    __slots__ = "addr", "__instr"
+    __slots__ = "__dict__", "__instr", "addr"
     __instr: Asm
 
     def __init__(self, instr: str, addr: int):
         self.addr = addr
-        self.asm = instr
+        self.asm = Asm(instr)
 
     @property
     def asm(self) -> Asm:
         return self.__instr
 
     @asm.setter
-    def asm(self, value: str):
-        self.__instr = Asm(value)
+    def asm(self, value: Asm):
+        if isinstance(value, str):
+            self.__instr = Asm(value)
+            return
+
+        self.__instr = value
 
     @property
     def code(self) -> str:
@@ -45,7 +48,7 @@ class MemCell:
         return self.__instr.asm
 
     def __repr__(self) -> str:
-        return "{0}:{1}".format(self.addr, str(self))
+        return f"{self.addr}:{self!s}"
 
     def __len__(self) -> int:
         return len(self.__instr)
@@ -77,7 +80,7 @@ class MemCell:
         """Returns if this instruction is a BLOCK ender"""
         return self.inst in helpers.BLOCK_ENDERS
 
-    @property
+    @cached_property
     def inst(self) -> str:
         """Returns just the asm instruction in lower
         case. E.g. 'ld', 'jp', 'pop'
@@ -88,7 +91,7 @@ class MemCell:
         return self.__instr.inst
 
     @property
-    def condition_flag(self) -> Optional[str]:
+    def condition_flag(self) -> str | None:
         """Returns the flag this instruction uses
         or None. E.g. 'c' for Carry, 'nz' for not-zero, etc.
         That is the condition required for this instruction
@@ -97,13 +100,20 @@ class MemCell:
         """
         return self.__instr.cond
 
-    @property
-    def opers(self) -> List[str]:
+    @cached_property
+    def opers(self) -> list[str]:
         """Returns a list of operands (i.e. register) this mnemonic uses"""
         return self.__instr.oper
 
-    @property
-    def destroys(self) -> Set[str]:
+    @cached_property
+    def branch_arg(self) -> str | None:
+        if self.__instr.inst not in {"jr", "jp", "call", "rst", "djnz"}:
+            return None
+
+        return self.__instr.asm.split()[-1]
+
+    @cached_property
+    def destroys(self) -> set[str]:
         """Returns which single registers (including f, flag)
         this instruction changes.
 
@@ -118,10 +128,10 @@ class MemCell:
 
         ret => Destroys SP
         """
-        if self.code in src.arch.z80.backend.common.ASMS:
-            return helpers.ALL_REGS
+        if self.code in ASMS:
+            return set(helpers.ALL_REGS)
 
-        res: Set[str] = set()
+        res: set[str] = set()
         i = self.inst
         o = self.opers
 
@@ -171,11 +181,11 @@ class MemCell:
 
         return res
 
-    @property
-    def requires(self) -> Set[str]:
+    @cached_property
+    def requires(self) -> set[str]:
         """Returns the registers, operands, etc. required by an instruction."""
-        if self.code in src.arch.z80.backend.common.ASMS:
-            return helpers.ALL_REGS
+        if self.code in ASMS:
+            return set(helpers.ALL_REGS)
 
         if self.inst == "#pragma":
             tmp = self.code.split(" ")[1:]
@@ -310,7 +320,7 @@ class MemCell:
 
         return result
 
-    def affects(self, reglist: Union[List[str], str]) -> bool:
+    def affects(self, reglist: list[str] | str) -> bool:
         """Returns if this instruction affects any of the registers
         in reglist.
         """
@@ -318,9 +328,9 @@ class MemCell:
             reglist = [reglist]
 
         reglist = helpers.single_registers(reglist)
-        return bool([x for x in self.destroys if x in reglist])
+        return any(x for x in self.destroys if x in reglist)
 
-    def needs(self, reglist: Union[List[str], str]) -> bool:
+    def needs(self, reglist: list[str] | str) -> bool:
         """Returns if this instruction need any of the registers
         in reglist.
         """
@@ -328,12 +338,12 @@ class MemCell:
             reglist = [reglist]
 
         reglist = helpers.single_registers(reglist)
-        return bool([x for x in self.requires if x in reglist])
+        return any(x for x in self.requires if x in reglist)
 
     @property
-    def used_labels(self) -> List[str]:
+    def used_labels(self) -> list[str]:
         """Returns a list of required labels for this instruction"""
-        result: List[str] = []
+        result: list[str] = []
         tmp = self.asm.asm
 
         if not len(tmp) or tmp[0] in ("#", ";"):
@@ -360,4 +370,4 @@ class MemCell:
         if old_label == new_label:
             return
 
-        self.asm = re.sub(r"\b" + old_label + r"\b", new_label, self.code)
+        self.asm = Asm(re.sub(r"\b" + old_label + r"\b", new_label, self.code))

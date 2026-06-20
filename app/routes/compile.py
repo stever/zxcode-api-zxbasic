@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, Header, HTTPException, status
 from typing import Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from uuid import UUID
 from app.process_monitor import process_monitor
 
@@ -30,7 +30,8 @@ class SessionVars(BaseModel):
 class Input(BaseModel):
     basic: str
 
-    @validator('basic')
+    @field_validator('basic')
+    @classmethod
     def validate_basic_size(cls, v):
         MAX_INPUT_SIZE = 10 * 1024  # 10KB max
         MIN_INPUT_SIZE = 1  # At least 1 character

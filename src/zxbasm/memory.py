@@ -1,40 +1,44 @@
-from collections import defaultdict
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
+
 from bisect import bisect_left, bisect_right
-from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
 
 from src.api import global_ as gl
-from src.zxbasm import global_ as asm_gl
-
-from src.api.errmsg import error, warning
 from src.api.debug import __DEBUG__
-
-from src.zxbasm.label import Label
+from src.api.errmsg import error, warning
+from src.zxbasm import global_ as asm_gl
 from src.zxbasm.asm import Asm
 from src.zxbasm.global_ import DOT
+from src.zxbasm.label import Label
 
 
 class Memory:
     """A class to describe memory"""
 
     MAX_MEM = 65535  # Max memory limit
-    _tmp_labels: Dict[Tuple[str, int], Dict[str, Label]]
-    _tmp_labels_lines: Dict[str, List[int]]
-    _tmp_pending_labels: Dict[str, List[Label]]
+    _tmp_labels: dict[tuple[str, int], dict[str, Label]]
+    _tmp_labels_lines: dict[str, list[int]]
+    _tmp_pending_labels: dict[str, list[Label]]
 
     def __init__(self, org: int = 0):
         """Initializes the origin of code.
         0 by default"""
         self.index = org  # ORG address (can be changed on the fly)
-        self.memory_bytes: Dict[int, int] = {}  # An array (associative) containing memory bytes
-        self.local_labels: List[Dict[str, Label]] = [{}]  # Local labels in the current memory scope
+        self.memory_bytes: dict[int, int] = {}  # An array (associative) containing memory bytes
+        self.local_labels: list[dict[str, Label]] = [{}]  # Local labels in the current memory scope
         self.global_labels = self.local_labels[0]  # Global memory labels
         self.ORG = org  # last ORG value set
-        self.scopes: List[int] = []
+        self.scopes: list[int] = []
         self.clear_temporary_labels()
 
         # Origins of code for asm mnemonics.
         # This will store corresponding asm instructions
-        self.orgs: Dict[int, List[Asm]] = {}
+        self.orgs: dict[int, list[Asm]] = {}
 
     def enter_proc(self, lineno: int):
         """Enters (pushes) a new context"""
@@ -51,7 +55,7 @@ class Memory:
         self.index = self.ORG = value
 
     @staticmethod
-    def id_name(label: str, namespace: Optional[str] = None) -> Tuple[str, str]:
+    def id_name(label: str, namespace: str | None = None) -> tuple[str, str]:
         """Given a name and a namespace, resolves
         returns the name as namespace + '.' + name. If namespace
         is none, the current NAMESPACE is used
@@ -205,7 +209,7 @@ class Memory:
         return org, OUTPUT
 
     def declare_label(
-        self, label: str, lineno: int, value: int = None, local: bool = False, namespace: Optional[str] = None
+        self, label: str, lineno: int, value: int = None, local: bool = False, namespace: str | None = None
     ) -> None:
         """Sets a label with the given value or with the current address (org)
         if no value is passed.
@@ -225,9 +229,9 @@ class Memory:
 
         fname = gl.FILENAME
         if label.isdecimal():  # Temporary label?
-            assert (
-                not self._tmp_labels_lines[fname] or self._tmp_labels_lines[fname][-1] <= lineno
-            ), "Temporary label out of order"
+            assert not self._tmp_labels_lines[fname] or self._tmp_labels_lines[fname][-1] <= lineno, (
+                "Temporary label out of order"
+            )
             if not self._tmp_labels_lines[fname] or self._tmp_labels_lines[fname][-1] != lineno:
                 self._tmp_labels_lines[fname].append(lineno)
 
@@ -272,7 +276,7 @@ class Memory:
 
         The resulting label is returned.
         """
-        ex_label, namespace = Memory.id_name(label)
+        ex_label, _ = Memory.id_name(label)
 
         if ex_label in self.local_labels[-1].keys():
             result = self.local_labels[-1][ex_label]

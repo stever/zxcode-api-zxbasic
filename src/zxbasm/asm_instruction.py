@@ -1,12 +1,14 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import re
-from typing import List
 
+from src.api.exception import Error
 from src.zxbasm.z80 import Z80SET
-from src.api.errors import Error
 
 # Reg. Exp. for counting N args in an asm mnemonic
 ARGre = re.compile(r"\bN+\b")
@@ -64,7 +66,7 @@ class InternalMismatchSizeError(Error):
         a = "" if current_size == 1 else "s"
         b = "" if asm.size == 1 else "s"
 
-        self.msg = "Invalid instruction [%s] size (%i byte%s). " "It should be %i byte%s." % (
+        self.msg = "Invalid instruction [%s] size (%i byte%s). It should be %i byte%s." % (
             asm.asm,
             current_size,
             a,
@@ -132,7 +134,7 @@ class AsmInstruction:
 
     def bytes(self) -> bytearray:
         """Returns a t-uple with instruction bytes (integers)"""
-        result: List[int] = []
+        result: list[int] = []
         op = self.opcode.split(" ")
         argi = 0
 

@@ -1,17 +1,18 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-import re
 import copy
-
+import re
 from typing import Union
 
-from .exceptions import PreprocError
 from src.api.debug import __DEBUG__
+from src.zxbpp import prepro
 
-import src.zxbpp.prepro as prepro
-
+from .exceptions import PreprocError
 
 DEBUG_LEVEL = 3  # Which -d level is required to show debug info
 RE_ID = re.compile("(?:.*[^_0-9a-zA-Z]|^)([a-zA-Z_][a-zA-Z_0-9]*)$")
@@ -23,13 +24,13 @@ class MacroCall:
     it value.
     """
 
-    __slots__ = "table", "id_", "callargs", "lineno", "fname"
+    __slots__ = "callargs", "fname", "id_", "lineno", "table"
 
     def __init__(self, fname: str, lineno: int, table: "prepro.DefinesTable", id_: Union["MacroCall", str], args=None):
         """Initializes the object with the ID table, the ID name and
         optionally, the passed args.
         """
-        self.table: "prepro.DefinesTable" = table
+        self.table: prepro.DefinesTable = table
         self.id_ = id_
         self.callargs = args
         self.lineno: int = lineno

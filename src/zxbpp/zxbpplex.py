@@ -1,33 +1,19 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-#
-# This is the Lexer for the ZXBpp (ZXBasic Preprocessor)
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import re
 import sys
 
-from typing import Optional
-
-from src.ply import lex
 from src.api import global_
+from src.ply import lex
 from src.zxbpp.base_pplex import BaseLexer, ReservedDirectives
-
 from src.zxbpp.prepro.definestable import DefinesTable
-
-
-EOL = "\n"
-
-# Names for std input/output
-STDOUT = "<stdout>"
-STDIN = "<stdin>"
-STDERR = "<stderr>"
 
 states = (
     ("prepro", "exclusive"),
@@ -50,6 +36,7 @@ _tokens = (
     "OR",
     "STRING",
     "TEXT",
+    "CO",
     "TOKEN",
     "NEWLINE",
     "_ENDFILE_",
@@ -59,10 +46,12 @@ _tokens = (
     "EQ",
     "PUSH",
     "POP",
+    "LB",
     "LP",
     "LLP",
     "RRP",
     "RP",
+    "RB",
     "COMMA",
     "CONTINUE",
     "NUMBER",
@@ -85,7 +74,7 @@ class Lexer(BaseLexer):
     This lexer is just a wrapper of the current FILESTACK[-1] lexer
     """
 
-    def __init__(self, defines_table: Optional[DefinesTable] = None):
+    def __init__(self, defines_table: DefinesTable | None = None):
         """Creates a new GLOBAL lexer instance"""
         super().__init__(tokens=tokens, states=states, defines_table=defines_table)
         self.expectingDirective = False  # True if the lexer expects a preprocessor directive
@@ -165,6 +154,18 @@ class Lexer(BaseLexer):
         t.lexer.lineno += 1
         return t
 
+    def t_prepro_LB(self, t):
+        r"\["
+        return t
+
+    def t_prepro_RB(self, t):
+        r"\]"
+        return t
+
+    def t_prepro_CO(self, t):
+        r"\:"
+        return t
+
     def t_INITIAL_comment_beginBlock(self, t):
         r"/'"
         self.__COMMENT_LEVEL += 1
@@ -186,6 +187,13 @@ class Lexer(BaseLexer):
         t.lexer.lineno += 1
         t.lexer.begin("INITIAL")
         t.value = t.value.strip()  # remove newline and spaces
+        return t
+
+    def t_singlecomment_CONTINUE(self, t):
+        r"\\\r?\n"
+        t.lexer.lineno += 1
+        t.value = t.value[1:]
+        t.lexer.pop_state()
         return t
 
     # Any other character is ignored until EOL

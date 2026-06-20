@@ -1,15 +1,14 @@
-# Runtime Labels
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-from typing import Dict
+from typing import Final
 
+from . import core, datarestore, io, math, misc, random
 from .namespace import NAMESPACE
-
-from . import core
-from . import datarestore
-from . import io
-from . import math
-from . import random
-from . import misc
 
 
 class Labels(
@@ -25,10 +24,12 @@ class Labels(
     NAMESPACE = NAMESPACE
 
 
-RUNTIME_LABELS = set(getattr(Labels, x) for x in dir(Labels) if not x.startswith("__") and x != "NAMESPACE")
+RUNTIME_LABELS: Final[set[str]] = {
+    getattr(Labels, x) for x in dir(Labels) if not x.startswith("__") and x != "NAMESPACE"
+}
 
 
-def dict_join(*args: Dict[str, str]) -> Dict[str, str]:
+def _dict_join(*args: dict[str, str]) -> dict[str, str]:
     assert all(isinstance(x, dict) for x in args)
     result = {}
 
@@ -41,7 +42,7 @@ def dict_join(*args: Dict[str, str]) -> Dict[str, str]:
     return result
 
 
-LABEL_REQUIRED_MODULES = dict_join(
+LABEL_REQUIRED_MODULES: Final[dict[str, str]] = _dict_join(
     core.REQUIRED_MODULES,
     datarestore.REQUIRED_MODULES,
     math.REQUIRED_MODULES,

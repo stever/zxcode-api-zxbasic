@@ -1,6 +1,9 @@
-# -*- coding: utf-8 -*-
-
-from typing import List
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 from .pattern import BasicLinePattern
 
@@ -24,7 +27,7 @@ class LineTemplate(BasicLinePattern):
             if len(tok) > 1 and tok[0] == "$":
                 val = vars_.get(tok, None)
                 if val is None:
-                    raise UnboundVarError("Unbound variable {0}".format(tok))
+                    raise UnboundVarError(f"Unbound variable {tok}")
                 result += val
             else:
                 result += tok
@@ -42,7 +45,7 @@ class BlockTemplate:
         lines = [x.strip() for x in lines]
         self.templates = [LineTemplate(x) for x in lines if x]
 
-    def filter(self, vars_=None) -> List[str]:
+    def filter(self, vars_=None) -> list[str]:
         return [y for y in [x.filter(vars_) for x in self.templates] if y]
 
     def __repr__(self):

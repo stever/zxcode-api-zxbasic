@@ -1,28 +1,25 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
-
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import sys
+from collections.abc import Callable
 from functools import wraps
 
-from typing import Callable
-from typing import Optional
-
-from src.api import global_
-from src.api import config
-
+from src.api import config, global_
 from src.api.constants import CLASS
 
-
 # Exports only these functions. Others
-__all__ = ["error", "is_valid_warning_code", "warning", "warning_not_used", "register_warning"]
+__all__ = (
+    "error",
+    "is_valid_warning_code",
+    "register_warning",
+    "warning",
+    "warning_not_used",
+)
 
 
 WARNING_PREFIX: str = ""  # will be prepended to warning messages
@@ -43,7 +40,7 @@ def info(msg: str) -> None:
     config.OPTIONS.stderr.write("info: %s\n" % msg)
 
 
-def error(lineno: int, msg: str, fname: Optional[str] = None) -> None:
+def error(lineno: int, msg: str, fname: str | None = None) -> None:
     """Generic syntax error routine"""
     if fname is None:
         fname = global_.FILENAME
@@ -60,7 +57,7 @@ def error(lineno: int, msg: str, fname: Optional[str] = None) -> None:
     global_.has_errors += 1
 
 
-def warning(lineno: int, msg: str, fname: Optional[str] = None) -> None:
+def warning(lineno: int, msg: str, fname: str | None = None) -> None:
     """Generic warning error routine"""
     global_.has_warnings += 1
     if global_.has_warnings <= config.OPTIONS.expected_warnings:
@@ -109,6 +106,13 @@ def register_warning(code: str) -> Callable:
     return decorator
 
 
+def warning_command_line_flag_deprecation(flag: str) -> None:
+    """Warning signaling command line flag is deprecated.
+    This is a special warning that can't be silenced, and needs no line number nor filename.
+    """
+    msg_output(f"WARNING: deprecated flag {flag}")  # TODO: To be enabled upon 1.18+
+
+
 # region [Warnings]
 @register_warning("100")
 def warning_implicit_type(lineno: int, id_: str, type_: str = None):
@@ -148,7 +152,7 @@ def warning_empty_if(lineno: int):
 
 
 @register_warning("150")
-def warning_not_used(lineno: int, id_: str, kind: str = "Variable", fname: Optional[str] = None):
+def warning_not_used(lineno: int, id_: str, kind: str = "Variable", fname: str | None = None):
     """Emits an optimization warning"""
     if config.OPTIONS.optimization_level > 0:
         warning(lineno, "%s '%s' is never used" % (kind, id_), fname=fname)
@@ -161,22 +165,22 @@ def warning_fastcall_with_N_parameters(lineno: int, kind: str, id_: str, num_par
 
 
 @register_warning("170")
-def warning_func_is_never_called(lineno: int, func_name: str, fname: Optional[str] = None):
+def warning_func_is_never_called(lineno: int, func_name: str, fname: str | None = None):
     warning(lineno, f"Function '{func_name}' is never called and has been ignored", fname=fname)
 
 
 @register_warning("180")
-def warning_unreachable_code(lineno: int, fname: Optional[str] = None):
+def warning_unreachable_code(lineno: int, fname: str | None = None):
     warning(lineno, "Unreachable code", fname=fname)
 
 
 @register_warning("190")
-def warning_function_should_return_a_value(lineno: int, func_name: str, fname: Optional[str] = None):
+def warning_function_should_return_a_value(lineno: int, func_name: str, fname: str | None = None):
     warning(lineno, f"Function '{func_name}' should return a value", fname=fname)
 
 
 @register_warning("200")
-def warning_value_will_be_truncated(lineno: int, fname: Optional[str] = None):
+def warning_value_will_be_truncated(lineno: int, fname: str | None = None):
     warning(lineno, "Value will be truncated", fname=fname)
 
 

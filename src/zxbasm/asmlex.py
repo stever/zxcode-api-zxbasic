@@ -1,27 +1,20 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-#
-# This is the Lexer for the zxbasm (ZXBasic Assembler)
-# ----------------------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import sys
-from typing import Tuple
-
-from src.ply import lex
-from src.api.config import OPTIONS
-from src.api.errmsg import error
 
 from src.api import global_
+from src.api.config import OPTIONS
+from src.api.errmsg import error
+from src.ply import lex
 
-
-_tokens: Tuple[str, ...] = (
+_tokens: tuple[str, ...] = (
     "STRING",
     "NEWLINE",
     "CO",
@@ -234,7 +227,7 @@ def get_uniques(l):
 tokens = get_uniques(_tokens)
 
 
-class Lexer(object):
+class Lexer:
     """Own class lexer to allow multiple instances.
     This lexer is just a wrapper of the current FILESTACK[-1] lexer
     """
@@ -265,7 +258,7 @@ class Lexer(object):
         return t
 
     def t_HEXA(self, t):
-        r"([0-9](_?[0-9a-fA-F])*[hH])|(\$[0-9a-fA-F](_?[0-9a-fA-F])*)|(0x[0-9a-fA-F](_?[0-9a-dA-F])*)"
+        r"([0-9](_?[0-9a-fA-F])*[hH])|(\$[0-9a-fA-F](_?[0-9a-fA-F])*)|(0x[0-9a-fA-F](_?[0-9a-fA-F])*)"
 
         if t.value[:2] == "0x":
             t.value = t.value[2:]  # Remove initial 0x

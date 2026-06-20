@@ -1,33 +1,32 @@
-#!/usr/bin/env python3
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
+
+from __future__ import annotations
 
 import os
-
-from typing import List
+from typing import TYPE_CHECKING
 
 import src.api.config
 import src.api.global_ as gl
-
 from src import arch
-
-from src.api.utils import open_file
-from src.api.config import OPTIONS
-from src.zxbc import args_parser
 from src.api import errmsg
-from src.api import debug
-from src.zxbpp import zxbpp
-from src.zxbc import zxbparser
+from src.api.config import OPTIONS
+from src.api.errmsg import warning_command_line_flag_deprecation
+from src.api.utils import open_file
+from src.zxbc import args_parser
+from src.zxbc.args_parser import FileType
 
-__all__ = ["FileType", "parse_options"]
+if TYPE_CHECKING:
+    from argparse import Namespace
 
-
-class FileType:
-    ASM = "asm"
-    IC = "ic"
-    TAP = "tap"
-    TZX = "tzx"
+__all__ = "parse_options", "set_option_defines"
 
 
-def parse_options(args: List[str] = None):
+def parse_options(args: list[str] | None = None) -> Namespace:
     """Parses command line options and setup global Options container"""
     parser = args_parser.parser()
     options = parser.parse_args(args=args)
@@ -50,7 +49,6 @@ def parse_options(args: List[str] = None):
     OPTIONS.memory_check = options.debug_memory
     OPTIONS.strict_bool = options.strict_bool
     OPTIONS.array_check = options.debug_array
-    OPTIONS.emit_backend = options.emit_backend
     OPTIONS.enable_break = options.enable_break
     OPTIONS.explicit = options.explicit
     OPTIONS.memory_map = options.memory_map
@@ -59,10 +57,10 @@ def parse_options(args: List[str] = None):
     OPTIONS.zxnext = options.zxnext
     OPTIONS.expected_warnings = gl.EXPECTED_WARNINGS = options.expect_warnings
     OPTIONS.hide_warning_codes = options.hide_warning_codes
+    OPTIONS.opt_strategy = options.opt_strategy
 
     if options.arch not in arch.AVAILABLE_ARCHITECTURES:
         parser.error(f"Invalid architecture '{options.arch}'")
-        return 2
 
     OPTIONS.architecture = options.arch
 
@@ -72,8 +70,7 @@ def parse_options(args: List[str] = None):
     duplicated_options = [f"W{x}" for x in enabled_warnings.intersection(disabled_warnings)]
 
     if duplicated_options:
-        parser.error(f"Warning(s) {', '.join(duplicated_options)} cannot be enabled " f"and disabled simultaneously")
-        return 2
+        parser.error(f"Warning(s) {', '.join(duplicated_options)} cannot be enabled and disabled simultaneously")
 
     for warn_code in enabled_warnings:
         errmsg.enable_warning(warn_code)
@@ -87,66 +84,84 @@ def parse_options(args: List[str] = None):
     if OPTIONS.org is None:
         parser.error(f"Invalid --org option '{options.org}'")
 
+    OPTIONS.heap_address = (
+        OPTIONS.heap_address if options.heap_address is None else src.api.utils.parse_int(options.heap_address)
+    )
+
     if options.defines:
         for i in options.defines:
             macro = list(i.split("=", 1))
             name = macro[0]
             val = "".join(macro[1:])
             OPTIONS.__DEFINES[name] = val
-            zxbpp.ID_TABLE.define(name, value=val, lineno=0)
 
     if OPTIONS.sinclair:
         OPTIONS.array_base = 1
         OPTIONS.string_base = 1
-        OPTIONS.strict_bool = True
         OPTIONS.case_insensitive = True
 
     OPTIONS.case_insensitive = options.ignore_case
-    debug.ENABLED = OPTIONS.debug_level > 0
-
-    if options.basic and not options.tzx and not options.tap:
-        parser.error("Option --BASIC and --autorun requires --tzx or tap format")
-        return 4
-
-    if options.append_binary and not options.tzx and not options.tap:
-        parser.error("Option --append-binary needs either --tap or --tzx")
-        return 5
-
-    if options.asm and options.memory_map:
-        parser.error("Option --asm and --mmap cannot be used together")
-        return 6
-
     OPTIONS.use_basic_loader = options.basic
     OPTIONS.autorun = options.autorun
 
-    if options.tzx:
+    if options.output_format:
+        OPTIONS.output_file_type = options.output_format
+    elif options.tzx:
         OPTIONS.output_file_type = FileType.TZX
+        warning_command_line_flag_deprecation(
+            f"--tzx (use -f {FileType.TZX} or --output-format={FileType.TZX} instead)"
+        )
     elif options.tap:
         OPTIONS.output_file_type = FileType.TAP
+        warning_command_line_flag_deprecation(
+            f"--tap (use -f {FileType.TAP} or --output-format={FileType.TAP} instead)"
+        )
     elif options.asm:
         OPTIONS.output_file_type = FileType.ASM
+        warning_command_line_flag_deprecation(
+            f"--asm (use -f {FileType.ASM} or --output-format={FileType.ASM} instead)"
+        )
     elif options.emit_backend:
-        OPTIONS.output_file_type = FileType.IC
+        OPTIONS.output_file_type = FileType.IR
+        warning_command_line_flag_deprecation(
+            f"--emit-backend (use -f {FileType.IR} or --output-format={FileType.IR} instead)"
+        )
+
+    if OPTIONS.strict_bool:
+        OPTIONS.strict_bool = False
+        warning_command_line_flag_deprecation("--strict-bool is deprecated (no longer needed)")
+
+    if OPTIONS.output_file_type == FileType.IR:
+        OPTIONS.emit_backend = True
+
+    if (options.basic or options.autorun) and OPTIONS.output_file_type not in {
+        FileType.TAP,
+        FileType.TZX,
+        FileType.SNA,
+        FileType.Z80,
+    }:
+        parser.error("Options --BASIC and --autorun require one of sna, tzx, tap or z80 output format")
+
+    if not (options.basic and options.autorun) and OPTIONS.output_file_type in {
+        FileType.SNA,
+        FileType.Z80,
+    }:
+        parser.error("Options --BASIC and --autorun are both required for snapshot formats")
+
+    if options.append_binary and OPTIONS.output_file_type not in {FileType.TAP, FileType.TZX}:
+        parser.error("Option --append-binary needs either tap or tzx output format")
+
+    if OPTIONS.output_file_type == FileType.ASM and options.memory_map:
+        parser.error("Option --asm and --mmap cannot be used together")
 
     args = [options.PROGRAM]
     if not os.path.exists(options.PROGRAM):
         parser.error("No such file or directory: '%s'" % args[0])
-        return 2
 
-    if OPTIONS.memory_check:
-        OPTIONS.__DEFINES["__MEMORY_CHECK__"] = ""
-        zxbpp.ID_TABLE.define("__MEMORY_CHECK__", lineno=0)
-
-    if OPTIONS.array_check:
-        OPTIONS.__DEFINES["__CHECK_ARRAY_BOUNDARY__"] = ""
-        zxbpp.ID_TABLE.define("__CHECK_ARRAY_BOUNDARY__", lineno=0)
-
-    if OPTIONS.enable_break:
-        OPTIONS.__DEFINES["__ENABLE_BREAK__"] = ""
-        zxbpp.ID_TABLE.define("__ENABLE_BREAK__", lineno=0)
+    set_option_defines()
 
     OPTIONS.include_path = options.include_path
-    OPTIONS.input_filename = zxbparser.FILENAME = os.path.basename(args[0])
+    OPTIONS.input_filename = os.path.basename(args[0])
 
     if not OPTIONS.output_filename:
         OPTIONS.output_filename = (
@@ -157,3 +172,17 @@ def parse_options(args: List[str] = None):
         OPTIONS.stderr = open_file(OPTIONS.stderr_filename, "wt", "utf-8")
 
     return options
+
+
+def set_option_defines() -> None:
+    """Sets some macros automatically, according to options"""
+    if OPTIONS.memory_check:
+        OPTIONS.__DEFINES["__MEMORY_CHECK__"] = ""
+
+    if OPTIONS.array_check:
+        OPTIONS.__DEFINES["__CHECK_ARRAY_BOUNDARY__"] = ""
+
+    if OPTIONS.enable_break:
+        OPTIONS.__DEFINES["__ENABLE_BREAK__"] = ""
+
+    OPTIONS.__DEFINES["__OPT_STRATEGY__"] = OPTIONS.opt_strategy

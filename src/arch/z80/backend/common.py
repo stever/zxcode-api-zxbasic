@@ -1,26 +1,26 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim ts=4:et:sw=4:ai
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import math
 import re
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Final
 
-from typing import Callable, Dict, List, NamedTuple, Set
+from src.api import global_, tmp_labels
+from src.api.config import OPTIONS, OptimizationStrategy
+from src.api.exception import TempAlreadyFreedError
 
-import src.api.global_ as gl
-import src.api.errors
-import src.arch
-
-from src.api import global_
-
-from src.arch.z80.backend import errors
-from src.arch.z80.backend.errors import InvalidICError as InvalidIC
-from src.arch.z80.backend.runtime import RUNTIME_LABELS, LABEL_REQUIRED_MODULES, NAMESPACE, Labels as RuntimeLabel
-
+from .runtime import LABEL_REQUIRED_MODULES, NAMESPACE, RUNTIME_LABELS
+from .runtime import Labels as RuntimeLabel
 
 # List of modules (in alphabetical order) that, if included, should call MEM_INIT
 MEMINITS = {
-    "alloc.asm",
+    "mem/alloc.asm",
     "loadstr.asm",
     "storestr2.asm",
     "storestr.asm",
@@ -30,27 +30,56 @@ MEMINITS = {
     "strslice.asm",
 }
 
+
+class DataType(StrEnum):
+    bool = "bool"
+    u8 = "u8"
+    u16 = "u16"
+    u32 = "u32"
+    i8 = "i8"
+    i16 = "i16"
+    i32 = "i32"
+    f16 = "f16"
+    f = "f"
+    str = "str"
+
+
+# Handy constants, to not having to type long names :-)
+BOOL_t: Final[DataType] = DataType.bool
+U8_t: Final[DataType] = DataType.u8
+U16_t: Final[DataType] = DataType.u16
+U32_t: Final[DataType] = DataType.u32
+I8_t: Final[DataType] = DataType.i8
+I16_t: Final[DataType] = DataType.i16
+I32_t: Final[DataType] = DataType.i32
+F16_t: Final[DataType] = DataType.f16
+F_t: Final[DataType] = DataType.f
+STR_t: Final[DataType] = DataType.str
+
 # Internal data types definition, with its size in bytes, or -1 if it is variable (string)
 # Compound types are only arrays, and have the t
-YY_TYPES = {
-    "u8": 1,  # 8 bit unsigned integer
-    "u16": 2,  # 16 bit unsigned integer
-    "u32": 4,  # 32 bit unsigned integer
-    "i8": 1,  # 8 bit SIGNED integer
-    "i16": 2,  # 16 bit SIGNED integer
-    "i32": 4,  # 32 bit SIGNED integer
-    "f16": 4,  # -32768.9999 to 32767.9999 -aprox.- fixed point decimal (step = 1/2^16)
-    "f": 5,  # Floating point
-}
+YY_TYPES: Final[MappingProxyType[DataType, int]] = MappingProxyType(
+    {
+        BOOL_t: 1,
+        U8_t: 1,  # 8 bit unsigned integer
+        U16_t: 2,  # 16 bit unsigned integer
+        U32_t: 4,  # 32 bit unsigned integer
+        I8_t: 1,  # 8 bit SIGNED integer
+        I16_t: 2,  # 16 bit SIGNED integer
+        I32_t: 4,  # 32 bit SIGNED integer
+        F16_t: 4,  # -32768.9999 to 32767.9999 -aprox.- fixed point decimal (step = 1/2^16)
+        F_t: 5,  # Floating point
+    }
+)
 
 # Matches a boolean instruction like 'equ16' or 'andi32'
-RE_BOOL = re.compile(r"^(eq|ne|lt|le|gt|ge|and|or|xor|not)(([ui](8|16|32))|(f16|f|str))$")
+RE_BOOL: Final[re.Pattern] = re.compile(r"^(eq|ne|lt|le|gt|ge|and|or|xor|not)(([ui](8|16|32))|(f16|f|str))$")
 
 # Marches an hexadecimal number
-RE_HEXA = re.compile(r"^[0-9A-F]+$")
+RE_HEXA: Final[re.Pattern] = re.compile(r"^[0-9A-F]+$")
 
 # (ix +/- ...) regexp
-RE_IX_IDX = re.compile(r"^\([ \t]*ix[ \t]*[-+][ \t]*.+\)$")
+RE_IX_IDX: Final[re.Pattern] = re.compile(r"^\([ \t]*(?:ix|iy)[ \t]*[-+][ \t]*.+\)$")
 
 # Label for the program START end EXIT
 START_LABEL = f"{NAMESPACE}.__START_PROGRAM"
@@ -78,69 +107,23 @@ AT_END = []
 ASMS = {}
 ASMCOUNT = 0  # ASM blocks counter
 
-MEMORY = []  # Must be initialized by with init()
-
-# Counter for generated labels (__LABEL0, __LABEL1, __LABELN...)
-LABEL_COUNTER = 0
-
 # Counter for generated tmp labels (__TMP0, __TMP1, __TMPN)
 TMP_COUNTER = 0
-TMP_STORAGES: List[str] = []
+TMP_STORAGES: list[str] = []
 
 # Set containing REQUIRED libraries
-REQUIRES: Set[str] = set()  # Set of required libraries (included once)
+REQUIRES: set[str] = set()  # Set of required libraries (included once)
 
 # Set containing automatic on start called routines
-INITS: Set[str] = set()  # Set of INIT routines
+INITS: set[str] = set()  # Set of INIT routines
+
+# Index register (Base PTR)
+IDX_REG: str = "ix"
 
 # CONSTANT LN(2)
-__LN2 = math.log(2)
-
-# GENERATED labels __LABELXX
-TMP_LABELS: Set[str] = set()
-
+__LN2: Final[float] = math.log(2)
 
 # ---------------------------------------------------------------------------------------------
-
-
-class Quad:
-    """Implements a Quad code instruction."""
-
-    def __init__(self, *args):
-        """Creates a quad-uple checking it has the current params.
-        Operators should be passed as Quad('+', tSymbol, val1, val2)
-        """
-        if not args:
-            raise InvalidIC("<null>")
-
-        if args[0] not in QUADS.keys():
-            errors.throw_invalid_quad_code(args[0])
-
-        if len(args) - 1 != QUADS[args[0]].nargs:
-            errors.throw_invalid_quad_params(args[0], len(args) - 1, QUADS[args[0]].nargs)
-
-        args = tuple([str(x) for x in args])  # Convert it to strings
-
-        self.quad = args
-        self.op = args[0]
-
-    def __str__(self):
-        """String representation"""
-        return str(self.quad)
-
-
-class ICInfo(NamedTuple):
-    nargs: int
-    func: Callable[[Quad], List[str]]
-
-
-# ---------------------------------------------------
-#  Table describing operations
-# 'OPERATOR' -> (Number of arguments, emitting func)
-# ---------------------------------------------------
-
-QUADS: Dict[str, ICInfo] = {}
-
 
 # ---------------------------------------------------
 # Shared functions
@@ -163,25 +146,14 @@ def is_2n(x: float) -> bool:
     return n == int(n)
 
 
-def tmp_label() -> str:
-    global LABEL_COUNTER
-    global TMP_LABELS
-
-    result = f"{gl.LABELS_NAMESPACE}.__LABEL{LABEL_COUNTER}"
-    TMP_LABELS.add(result)
-    LABEL_COUNTER += 1
-
-    return result
-
-
-def tmp_remove(label: str):
+def tmp_remove(label: str) -> None:
     if label not in TMP_STORAGES:
-        raise src.api.errors.TempAlreadyFreedError(label)
+        raise TempAlreadyFreedError(label)
 
     TMP_STORAGES.pop(TMP_STORAGES.index(label))
 
 
-def runtime_call(label):
+def runtime_call(label: str) -> str:
     assert label in RUNTIME_LABELS, f"Invalid runtime label '{label}'"
     if label in LABEL_REQUIRED_MODULES:
         REQUIRES.add(LABEL_REQUIRED_MODULES[label])
@@ -194,7 +166,7 @@ def runtime_call(label):
 # ------------------------------------------------------------------
 
 
-def is_int(op):
+def is_int(op: str) -> bool:
     """Returns True if the given operand (string)
     contains an integer number
     """
@@ -208,7 +180,7 @@ def is_int(op):
     return False
 
 
-def is_float(op):
+def is_float(op: str) -> bool:
     """Returns True if the given operand (string)
     contains a floating point number
     """
@@ -222,21 +194,18 @@ def is_float(op):
     return False
 
 
-def _int_ops(op1, op2, swap=True):
+def _int_ops(op1: str, op2: str) -> tuple[str, str | int] | None:
     """Receives a list with two strings (operands).
     If none of them contains integers, returns None.
     Otherwise, returns a t-uple with (op[0], op[1]),
-    where op[1] is the integer one (the list is swapped)
-    unless swap is False (e.g. sub and div used this
+    where op[1] (2nd operand) is always the integer one (the list is swapped)
+    This cannot be used by non-commutative operations like sub and div used this
     because they're not commutative).
 
     The integer operand is always converted to int type.
     """
     if is_int(op1):
-        if swap:
-            return op2, int(op1)
-        else:
-            return int(op1), op2
+        return op2, int(op1)
 
     if is_int(op2):
         return op1, int(op2)
@@ -244,7 +213,7 @@ def _int_ops(op1, op2, swap=True):
     return None
 
 
-def _f_ops(op1, op2, swap=True):
+def _f_ops(op1: str, op2: str, *, swap: bool = True) -> tuple[str | float, str | float] | None:
     """Receives a list with two strings (operands).
     If none of them contains integers, returns None.
     Otherwise, returns a t-uple with (op[0], op[1]),
@@ -257,8 +226,8 @@ def _f_ops(op1, op2, swap=True):
     if is_float(op1):
         if swap:
             return op2, float(op1)
-        else:
-            return float(op1), op2
+
+        return float(op1), op2
 
     if is_float(op2):
         return op1, float(op2)
@@ -266,27 +235,22 @@ def _f_ops(op1, op2, swap=True):
     return None
 
 
-def is_int_type(stype: str) -> bool:
+def is_int_type(stype: DataType) -> bool:
     """Returns whether a given type is integer"""
     return stype[0] in ("u", "i")
 
 
-def init():
-    global LABEL_COUNTER
-    global TMP_COUNTER
+def init() -> None:
     global ASMCOUNT
     global FLAG_end_emitted
     global FLAG_use_function_exit
 
-    LABEL_COUNTER = 0
-    TMP_COUNTER = 0
-    ASMCOUNT = 0
+    tmp_labels.reset()
 
-    MEMORY.clear()
+    ASMCOUNT = 0
     TMP_STORAGES.clear()
     REQUIRES.clear()
     INITS.clear()
-    TMP_LABELS.clear()
     ASMS.clear()
     AT_END.clear()
 
@@ -299,7 +263,7 @@ def init():
 # ------------------------------------------------------------------
 
 
-def get_bytes(elements: List[str]) -> List[str]:
+def get_bytes(elements: list[str]) -> list[str]:
     """Returns a list a default set of bytes/words in hexadecimal
     (starting with an hex number) or literals (starting with #).
     Numeric values with more than 2 digits represents a WORD (2 bytes) value.
@@ -312,15 +276,15 @@ def get_bytes(elements: List[str]) -> List[str]:
 
     for x in elements:
         if x.startswith("##"):  # 2-byte literal
-            output.append("({}) & 0xFF".format(x[2:]))
-            output.append("(({}) >> 8) & 0xFF".format(x[2:]))
+            output.append(f"({x[2:]}) & 0xFF")
+            output.append(f"(({x[2:]}) >> 8) & 0xFF")
             continue
 
         if x.startswith("#"):  # 1-byte literal
-            output.append("({}) & 0xFF".format(x[1:]))
+            output.append(f"({x[1:]}) & 0xFF")
             continue
 
-        # must be an hex number
+        # must be a hex number
         assert RE_HEXA.match(x), 'expected an hex number, got "%s"' % x
         output.append("%02X" % int(x[-2:], 16))
         if len(x) > 2:
@@ -329,9 +293,9 @@ def get_bytes(elements: List[str]) -> List[str]:
     return output
 
 
-def get_bytes_size(elements: List[str]) -> int:
+def get_bytes_size(elements: list[str]) -> int:
     """Defines a memory space with a default set of bytes/words in hexadecimal
-    (starting with an hex number) or literals (starting with #).
+    (starting with a hex number) or literals (starting with #).
     Numeric values with more than 2 digits represents a WORD (2 bytes) value.
     E.g. '01' => 01h, '001' => 1, 0 bytes (0001h)
     Literal values starts with # (1 byte) or ## (2 bytes)
@@ -341,127 +305,199 @@ def get_bytes_size(elements: List[str]) -> int:
     return len(get_bytes(elements))
 
 
-def to_byte(stype):
+def normalize_boolean() -> list[str]:
+    if OPTIONS.opt_strategy == OptimizationStrategy.Size:
+        return [runtime_call(RuntimeLabel.NORMALIZE_BOOLEAN)]
+
+    return [
+        "sub 1",  # Carry if A = 0
+        "sbc a, a",  # 0xFF if A was 0, 0 otherwise
+        "inc a",  # 0 if A was 0, 1 otherwise
+    ]
+
+
+def to_byte(stype: DataType) -> list[str]:
     """Returns the instruction sequence for converting from
     the given type to byte.
     """
     output = []
 
-    if stype in ("i8", "u8"):
+    if stype == BOOL_t:
+        return normalize_boolean()
+
+    if stype in (I8_t, U8_t):
         return []
 
     if is_int_type(stype):
         output.append("ld a, l")
-    elif stype == "f16":
+    elif stype == F16_t:
         output.append("ld a, e")
-    elif stype == "f":  # Converts C ED LH to byte
+    elif stype == F_t:  # Converts C ED LH to byte
         output.append(runtime_call(RuntimeLabel.FTOU32REG))
         output.append("ld a, l")
 
     return output
 
 
-def to_word(stype):
+def to_word(stype: DataType) -> list[str]:
     """Returns the instruction sequence for converting the given
     type stored in DE,HL to word (unsigned) HL.
     """
     output = []  # List of instructions
 
-    if stype == "u8":  # Byte to word
+    if stype == BOOL_t:
+        output.extend(normalize_boolean())
+
+    if stype in (BOOL_t, U8_t):  # Byte to word
         output.append("ld l, a")
         output.append("ld h, 0")
 
-    elif stype == "i8":  # Signed byte to word
+    elif stype == I8_t:  # Signed byte to word
         output.append("ld l, a")
         output.append("add a, a")
         output.append("sbc a, a")
         output.append("ld h, a")
 
-    elif stype == "f16":  # Must MOVE HL into DE
+    elif stype == F16_t:  # Must MOVE HL into DE
         output.append("ex de, hl")
 
-    elif stype == "f":
+    elif stype == F_t:
         output.append(runtime_call(RuntimeLabel.FTOU32REG))
 
     return output
 
 
-def to_long(stype):
+def to_long(stype: DataType) -> list[str]:
     """Returns the instruction sequence for converting the given
     type stored in DE,HL to long (DE, HL).
     """
     output = []  # List of instructions
 
-    if stype in ("i8", "u8", "f16"):  # Byte to word
+    if stype == BOOL_t:
+        output = normalize_boolean()
+        output.extend(
+            [
+                "ld l, a",
+                "ld h, 0",
+                "ld e, h",
+                "ld d, h",
+            ]
+        )
+        return output
+
+    if stype in (I8_t, U8_t):  # Byte to word
         output = to_word(stype)
+        output.append("ld e, h")
+        output.append("ld d, h")
 
-        if stype != "f16":  # If its a byte, just copy H to D,E
-            output.append("ld e, h")
-            output.append("ld d, h")
+    elif stype == I16_t:  # Signed byte or fixed to word
+        output.extend(
+            [
+                "ld a, h",
+                "add a, a",
+                "sbc a, a",
+                "ld e, a",
+                "ld d, a",
+            ]
+        )
 
-    if stype in ("i16", "f16"):  # Signed byte or fixed to word
-        output.append("ld a, h")
-        output.append("add a, a")
-        output.append("sbc a, a")
-        output.append("ld e, a")
-        output.append("ld d, a")
+    elif stype == F16_t:
+        output.extend(
+            [
+                "ex de, hl",
+                "ld de, 0",
+                # Copies the highest bit (sign) to DE
+                "ld a, h",
+                "add a, a",
+                "sbc a, a",
+                "ld e, a",
+                "ld d, a",
+            ]
+        )
 
-    elif stype == "u16":
+    elif stype in (U32_t, I32_t):
+        return []
+
+    elif stype == U16_t:
         output.append("ld de, 0")
 
-    elif stype == "f":
+    elif stype == F_t:
         output.append(runtime_call(RuntimeLabel.FTOU32REG))
+    else:
+        raise NotImplementedError(f"type conversion from {stype} to long is undefined")
 
     return output
 
 
-def to_fixed(stype):
+def to_fixed(stype: DataType) -> list[str]:
     """Returns the instruction sequence for converting the given
     type stored in DE,HL to fixed DE,HL.
     """
-    output = []  # List of instructions
+    if stype == BOOL_t:
+        output = to_word(stype)
+        output.extend(
+            [
+                "ex de, hl",
+                "ld hl, 0",  # 'Truncate' the fixed point
+            ]
+        )
+        return output
 
     if is_int_type(stype):
         output = to_word(stype)
-        output.append("ex de, hl")
-        output.append("ld hl, 0")  # 'Truncate' the fixed point
-    elif stype == "f":
-        output.append(runtime_call(RuntimeLabel.FTOF16REG))
+        output.extend(
+            [
+                "ex de, hl",
+                "ld hl, 0",  # 'Truncate' the fixed point
+            ]
+        )
+        return output
 
-    return output
+    if stype == F_t:
+        return [runtime_call(RuntimeLabel.FTOF16REG)]
+
+    raise NotImplementedError(f"type conversion from {stype} to fixed")
 
 
-def to_float(stype: str) -> List[str]:
+def to_float(stype: DataType) -> list[str]:
     """Returns the instruction sequence for converting the given
     type stored in DE,HL to fixed DE,HL.
     """
-    output: List[str] = []  # List of instructions
+    output: list[str] = []  # List of instructions
 
-    if stype == "f":
+    if stype == F_t:
         return output  # Nothing to do
 
-    if stype == "f16":
+    if stype == F16_t:
         output.append(runtime_call(RuntimeLabel.F16TOFREG))
         return output
 
+    if stype == BOOL_t:
+        output.extend(normalize_boolean())
+
     # If we reach this point, it's an integer type
-    if stype == "u8":
+    if stype in (BOOL_t, U8_t):  # The ZX Spectrum ROM FP-Calc already returns 0 or 1 for Booleans
         output.append(runtime_call(RuntimeLabel.U8TOFREG))
-    elif stype == "i8":
+    elif stype == I8_t:
         output.append(runtime_call(RuntimeLabel.I8TOFREG))
-    else:
-        output = to_long(stype)
-        if stype in ("i16", "i32"):
+    elif stype in {I16_t, I32_t, U16_t, U32_t}:
+        if stype in (I16_t, U16_t):
+            output.extend(to_long(stype))
+
+        if stype in (I16_t, I32_t):
             output.append(runtime_call(RuntimeLabel.I32TOFREG))
         else:
             output.append(runtime_call(RuntimeLabel.U32TOFREG))
+    else:
+        raise NotImplementedError(f"type conversion from {stype} to float is undefined")
 
     return output
 
 
-def new_ASMID():
+def new_ASMID() -> str:
     """Returns a new unique ASM block id"""
+    global ASMCOUNT
 
-    result = "##ASM%i" % src.arch.z80.backend.common.ASMCOUNT
-    src.arch.z80.backend.common.ASMCOUNT += 1
+    result = f"##ASM{ASMCOUNT}"
+    ASMCOUNT += 1
     return result

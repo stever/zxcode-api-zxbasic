@@ -1,17 +1,36 @@
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
+
+from __future__ import annotations
 
 import argparse
+from enum import StrEnum
 
 from src import arch
 from src.api import errmsg
-from src.api.config import OPTIONS
+from src.api.config import OPTIONS, OptimizationStrategy
 
 from .version import VERSION
+
+
+class FileType(StrEnum):
+    ASM = "asm"
+    BIN = "bin"
+    IR = "ir"
+    SNA = "sna"
+    TAP = "tap"
+    TZX = "tzx"
+    Z80 = "z80"
 
 
 def parse_warning_option(code: str) -> str:
     if not errmsg.is_valid_warning_code(code):
         raise argparse.ArgumentTypeError(f"Invalid warning option 'W{code}'")
+
     return code
 
 
@@ -32,7 +51,7 @@ def parser() -> argparse.ArgumentParser:
         "-O",
         "--optimize",
         type=int,
-        help="Sets optimization level. " f"0 = None (default level is {OPTIONS.optimization_level}",
+        help=f"Sets optimization level. 0 = None (default level is {OPTIONS.optimization_level})",
     )
     parser_.add_argument(
         "-o",
@@ -44,14 +63,39 @@ def parser() -> argparse.ArgumentParser:
 
     output_file_type_group = parser_.add_mutually_exclusive_group()
     output_file_type_group.add_argument(
-        "-T", "--tzx", action="store_true", help="Sets output format to tzx (default is .bin)"
+        "-T",
+        "--tzx",
+        action="store_true",
+        help="Sets output format to .tzx (default is .bin). DEPRECATED. Use -f",
     )
     output_file_type_group.add_argument(
-        "-t", "--tap", action="store_true", help="Sets output format to tap (default is .bin)"
+        "-t",
+        "--tap",
+        action="store_true",
+        help="Sets output format to .tap (default is .bin). DEPRECATED. Use -f",
     )
-    output_file_type_group.add_argument("-A", "--asm", action="store_true", help="Sets output format to asm")
+    output_file_type_group.add_argument(
+        "-A",
+        "--asm",
+        action="store_true",
+        help="Sets output format to .asm. DEPRECATED. Use -f",
+    )
+    output_file_type_group.add_argument(
+        "-E",
+        "--emit-backend",
+        action="store_true",
+        help="Emits backend code (IR) instead of ASM or binary. DEPRECATED. Use -f",
+    )
     output_file_type_group.add_argument(
         "--parse-only", action="store_true", help="Only parses to check for syntax and semantic errors"
+    )
+    output_file_type_group.add_argument(
+        "-f",
+        "--output-format",
+        type=str,
+        choices=[str(x) for x in FileType],
+        required=False,
+        help="Output format",
     )
 
     parser_.add_argument(
@@ -60,7 +104,7 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="basic",
         default=None,
-        help="Creates a BASIC loader which loads the rest of the CODE. Requires -T ot -t",
+        help="Creates a BASIC loader which loads the rest of the CODE. Requires one of sna, tzx, tap or z80 output",
     )
     parser_.add_argument(
         "-a", "--autorun", action="store_true", default=None, help="Sets the program to be run once loaded"
@@ -80,18 +124,19 @@ def parser() -> argparse.ArgumentParser:
         "-Z",
         "--sinclair",
         action="store_true",
-        help="Enable by default some more original ZX Spectrum Sinclair BASIC features:" " ATTR, SCREEN$, POINT",
+        help="Enable by default some more original ZX Spectrum Sinclair BASIC features: ATTR, SCREEN$, POINT",
     )
     parser_.add_argument(
         "-H", "--heap-size", type=int, help=f"Sets heap size in bytes (default {OPTIONS.heap_size} bytes)"
     )
+    parser_.add_argument("--heap-address", type=str, default=None, help="Sets the heap address.")
     parser_.add_argument("--debug-memory", action="store_true", default=None, help="Enables out-of-memory debug")
     parser_.add_argument("--debug-array", action="store_true", default=None, help="Enables array boundary checking")
-    parser_.add_argument("--strict-bool", action="store_true", default=None, help="Enforce boolean values to be 0 or 1")
-    parser_.add_argument("--enable-break", action="store_true", help="Enables program execution BREAK detection")
     parser_.add_argument(
-        "-E", "--emit-backend", action="store_true", help="Emits backend code instead of ASM or binary"
+        "--strict-bool", action="store_true", default=None, help="Enforce boolean values to be 0 or 1 (Deprecated)"
     )
+    parser_.add_argument("--enable-break", action="store_true", help="Enables program execution BREAK detection")
+
     parser_.add_argument(
         "--explicit", action="store_true", help="Requires all variables and functions to be declared before used"
     )
@@ -104,23 +149,13 @@ def parser() -> argparse.ArgumentParser:
         help="Defines de given macro. Eg. -D MYDEBUG or -D NAME=Value",
     )
     parser_.add_argument("-M", "--mmap", type=str, dest="memory_map", default=None, help="Generate label memory map")
-
-    case_sens_group = parser_.add_mutually_exclusive_group()
-    case_sens_group.add_argument(
+    parser_.add_argument(
         "-i",
         "--ignore-case",
         action="store_true",
         default=None,
         dest="ignore_case",
-        help="Ignore case. Makes variable names are case insensitive",
-    )
-    case_sens_group.add_argument(
-        "+i",
-        "--case-sensitive",
-        action="store_false",
-        default=None,
-        dest="ignore_case",
-        help="Ignore case. Makes variable names are case insensitive",
+        help="Ignore case. Makes variable and function names insensitive",
     )
 
     parser_.add_argument(
@@ -136,15 +171,15 @@ def parser() -> argparse.ArgumentParser:
     parser_.add_argument(
         "--headerless", action="store_true", default=None, help="Header-less mode: omit asm prologue and epilogue"
     )
-    parser_.add_argument("--version", action="version", version="%(prog)s {0}".format(VERSION))
+    parser_.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser_.add_argument(
-        "--append-binary", default=[], action="append", help="Appends binary to tape file (only works with -t or -T)"
+        "--append-binary", default=[], action="append", help="Appends binary to tape file (only works with tzx and tap)"
     )
     parser_.add_argument(
         "--append-headless-binary",
         default=[],
         action="append",
-        help="Appends binary to tape file (only works with -t or -T)",
+        help="Appends binary to tape file (only works with output formats tzx and tap)",
     )
     parser_.add_argument(
         "-N", "--zxnext", action="store_true", default=None, help="Enables ZX Next asm extended opcodes"
@@ -169,11 +204,18 @@ def parser() -> argparse.ArgumentParser:
         "--enable-warning",
         type=parse_warning_option,
         action="append",
-        help="Disables warning WXXX (i.e. -W100 disables warning with code W100)",
+        help="Enables warning WXXX (i.e. -W100 disables warning with code W100)",
     )
     parser_.add_argument("--hide-warning-codes", action="store_true", default=None, help="Hides WXXX codes")
     parser_.add_argument(
         "-F", "--config-file", type=str, default=OPTIONS.project_filename, help="Loads config from config file"
     )
     parser_.add_argument("--save-config", type=str, help="Save options into a config file")
+    parser_.add_argument(
+        "--opt-strategy",
+        choices=[str(x) for x in OptimizationStrategy],
+        default=OptimizationStrategy.Auto,
+        help=f"Optimization strategy (optimize for speed or size). Default: {OptimizationStrategy.Auto}",
+    )
+
     return parser_

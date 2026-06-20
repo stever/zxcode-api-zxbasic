@@ -1,20 +1,22 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:sw=4:et:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 __doc__ = """ A class for an identifier parsed by the preprocessor.
 It contains it's name, arguments and macro value.
 """
 
-import sys
 import copy
+import sys
 
-from typing import Optional
+from src.api.debug import __DEBUG__
+from src.zxbpp import prepro
 
 from .macrocall import MacroCall
-from src.api.debug import __DEBUG__
 from .output import CURRENT_FILE
-import src.zxbpp.prepro as prepro
 
 DEBUG_LEVEL = 3  # Which -d level is required to show debug info
 
@@ -24,7 +26,7 @@ class ID:
     (the ID name and value by default).
     """
 
-    __slots__ = "name", "value", "lineno", "fname", "args", "evaluating"
+    __slots__ = "args", "evaluating", "fname", "lineno", "name", "value"
 
     def __init__(self, id_: str, args=None, value=None, lineno: int = None, fname: str = None):
         if fname is None:
@@ -38,7 +40,7 @@ class ID:
 
         self.name: str = id_
         self.value: list = value
-        self.lineno: Optional[int] = lineno  # line number at which de ID was defined
+        self.lineno: int | None = lineno  # line number at which de ID was defined
         self.fname: str = fname  # file name in which the ID was defined
         self.args = args
         self.evaluating = False
@@ -54,9 +56,9 @@ class ID:
     def __dumptable(table: "prepro.DefinesTable") -> None:
         """Dumps table on screen for debugging purposes"""
         for k, v in table.table.items():
-            sys.stdout.write("{0}\t<--- {1} {2}".format(k, v, type(v)))
+            sys.stdout.write(f"{k}\t<--- {v} {type(v)}")
             if isinstance(v, ID):
-                sys.stdout.write(" {0}".format(v.value)),
+                (sys.stdout.write(f" {v.value}"),)
             sys.stdout.write("\n")
 
     def __call__(self, table, macro: MacroCall) -> str:

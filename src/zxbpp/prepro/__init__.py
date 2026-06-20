@@ -1,18 +1,13 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:sw=4:et:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-from .id_ import ID
+from .args import Arg, ArgList
 from .definestable import DefinesTable
+from .id_ import ID
 from .macrocall import MacroCall
-from .args import Arg
-from .args import ArgList
 
-
-__all__ = [
-    "ID",
-    "DefinesTable",
-    "MacroCall",
-    "Arg",
-    "ArgList",
-]
+__all__ = "ID", "Arg", "ArgList", "DefinesTable", "MacroCall"

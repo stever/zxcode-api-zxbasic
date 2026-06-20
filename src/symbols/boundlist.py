@@ -1,18 +1,12 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-from typing import Optional
-
-from .symbol_ import Symbol
-from .bound import SymbolBOUND
+from src.symbols.bound import SymbolBOUND
+from src.symbols.symbol_ import Symbol
 
 
 class SymbolBOUNDLIST(Symbol):
@@ -22,7 +16,7 @@ class SymbolBOUNDLIST(Symbol):
         for bound in bounds:
             assert isinstance(bound, SymbolBOUND)
 
-        super(SymbolBOUNDLIST, self).__init__(*bounds)
+        super().__init__(*bounds)
 
     def __len__(self):  # Number of bounds:
         return len(self.children)
@@ -34,7 +28,7 @@ class SymbolBOUNDLIST(Symbol):
         return "(%s)" % ", ".join(str(x) for x in self)
 
     @classmethod
-    def make_node(cls, node: Optional[Symbol], *args):
+    def make_node(cls, node: Symbol | None, *args):
         """Creates an array BOUND LIST."""
         if node is None:
             return cls.make_node(SymbolBOUNDLIST(), *args)

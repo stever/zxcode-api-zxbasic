@@ -1,17 +1,14 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
-
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-from typing import Any, Callable, Type
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import types
+from collections.abc import Callable
+from typing import Any
+
 from .tree import Tree
 
 
@@ -21,13 +18,15 @@ from .tree import Tree
 class Ast(Tree):
     """Adds some methods for easier coding..."""
 
+    __slots__: tuple[str, ...] = ()
+
     @property
     def token(self):
         return self.__class__
 
 
 class NodeVisitor:
-    node_type: Type = Ast
+    node_type: type = Ast
 
     def visit(self, node):
         stack = [node]
@@ -52,8 +51,7 @@ class NodeVisitor:
         meth = getattr(self, f"visit_{node.token}", self.generic_visit)
         return meth(node)
 
-    @staticmethod
-    def generic_visit(node: Ast):
+    def generic_visit(self, node: Ast):
         raise RuntimeError(f"No visit_{node.token}() method defined")
 
     def filter_inorder(

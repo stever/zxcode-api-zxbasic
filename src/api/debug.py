@@ -1,15 +1,16 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:sw=4:et:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# Simple debugging module
-
-import os
 import inspect
+import os
 
 from .config import OPTIONS
 
-__all__ = ["__DEBUG__", "__LINE__", "__FILE__"]
+__all__ = "__DEBUG__", "__FILE__", "__LINE__"
 
 # --------------------- END OF GLOBAL FLAGS ---------------------
 

@@ -1,44 +1,34 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:sw=4:et:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-from typing import Dict, Union
-
-from src.api import config
-from src.api import global_
-from src.api import errmsg
-
-import src.symbols as symbols
-
-from src.symbols.type_ import Type
+from src.api import config, errmsg, global_
 from src.api.constants import CLASS, SCOPE
+from src.symbols import sym as symbols
+from src.symbols.symbol_ import Symbol
+from src.symbols.type_ import Type
 
-
-__all__ = [
-    "check_type",
-    "check_is_declared_explicit",
+__all__ = (
     "check_and_make_label",
-    "check_type_is_explicit",
     "check_call_arguments",
+    "check_is_declared_explicit",
     "check_pending_calls",
     "check_pending_labels",
-    "is_number",
+    "check_type",
+    "check_type_is_explicit",
+    "common_type",
     "is_const",
-    "is_static",
-    "is_string",
-    "is_numeric",
     "is_dynamic",
     "is_null",
+    "is_number",
+    "is_numeric",
+    "is_static",
+    "is_string",
     "is_unsigned",
-    "common_type",
-]
+)
 
 
 # ----------------------------------------------------------------------
@@ -98,7 +88,7 @@ def check_type_is_explicit(lineno: int, id_: str, type_):
             errmsg.syntax_error_undeclared_type(lineno, id_)
 
 
-def check_call_arguments(lineno: int, id_: str, args):
+def check_call_arguments(lineno: int, id_: str, args, filename: str):
     """Check arguments against function signature.
 
     Checks every argument in a function call against a function.
@@ -111,19 +101,19 @@ def check_call_arguments(lineno: int, id_: str, args):
         return False
 
     entry = global_.SYMBOL_TABLE.get_entry(id_)
-    named_args: Dict[str, symbols.ARGUMENT] = {}
+    named_args: dict[str, symbols.ARGUMENT] = {}
 
-    param_names = set(x.name for x in entry.params)
+    param_names = {x.name for x in entry.ref.params}
     for arg in args:
         if arg.name is not None and arg.name not in param_names:
-            errmsg.error(lineno, f"Unexpected argument '{arg.name}'", fname=entry.filename)
+            errmsg.error(lineno, f"Unexpected argument '{arg.name}'", fname=filename)
             return False
 
     last_arg_name = None
-    for arg, param in zip(args, entry.params):
+    for arg, param in zip(args, entry.ref.params):
         if last_arg_name is not None and arg.name is None:
             errmsg.error(
-                lineno, f"Positional argument cannot go after keyword argument '{last_arg_name}'", fname=entry.filename
+                lineno, f"Positional argument cannot go after keyword argument '{last_arg_name}'", fname=filename
             )
             return False
 
@@ -134,8 +124,8 @@ def check_call_arguments(lineno: int, id_: str, args):
 
         named_args[arg.name] = arg
 
-    if len(named_args) < len(entry.params):  # try filling default params
-        for param in entry.params:
+    if len(named_args) < len(entry.ref.params):  # try filling default params
+        for param in entry.ref.params:
             if param.name in named_args:
                 continue
             if param.default_value is None:
@@ -146,34 +136,34 @@ def check_call_arguments(lineno: int, id_: str, args):
 
     for arg in args:
         if arg.name is None:
-            errmsg.error(lineno, f"Too many arguments for Function '{id_}'", fname=entry.filename)
+            errmsg.error(lineno, f"Too many arguments for Function '{id_}'", fname=filename)
             return False
 
-    if len(named_args) != len(entry.params):
-        c = "s" if len(entry.params) != 1 else ""
+    if len(named_args) != len(entry.ref.params):
+        c = "s" if len(entry.ref.params) != 1 else ""
         errmsg.error(
-            lineno, f"Function '{id_}' takes {len(entry.params)} parameter{c}, not {len(args)}", fname=entry.filename
+            lineno, f"Function '{id_}' takes {len(entry.ref.params)} parameter{c}, not {len(args)}", fname=filename
         )
         return False
 
-    for param in entry.params:
+    for param in entry.ref.params:
         arg = named_args[param.name]
 
         if arg.class_ in (CLASS.var, CLASS.array) and param.class_ != arg.class_:
-            errmsg.error(lineno, "Invalid argument '{}'".format(arg.value), fname=arg.filename)
+            errmsg.error(lineno, f"Invalid argument '{arg.value}'", fname=arg.filename)
             return None
 
         if not arg.typecast(param.type_):
             return False
 
         if param.byref:
-            if not isinstance(arg.value, symbols.VAR):
+            if not isinstance(arg.value, (symbols.ID, symbols.ARRAYLOAD)):
                 errmsg.error(
                     lineno, "Expected a variable name, not an expression (parameter By Reference)", fname=arg.filename
                 )
                 return False
 
-            if arg.class_ not in (CLASS.var, CLASS.array):
+            if arg.class_ not in (CLASS.var, CLASS.array, CLASS.unknown):
                 errmsg.error(lineno, "Expected a variable or array name (parameter By Reference)")
                 return False
 
@@ -200,8 +190,8 @@ def check_pending_calls():
     result = True
 
     # Check for functions defined after calls (parameters, etc)
-    for id_, params, lineno in global_.FUNCTION_CALLS:
-        result = result and check_call_arguments(lineno, id_, params)
+    for call in global_.FUNCTION_CALLS:
+        result = result and check_call_arguments(call.lineno, call.entry.original_name, call.args, call.filename)
 
     return result
 
@@ -226,22 +216,21 @@ def check_pending_labels(ast):
         for x in node.children:
             pending.append(x)
 
-        if node.token != "VAR" or (node.token == "VAR" and node.class_ is not CLASS.unknown):
+        if node.token not in ("ID", "LABEL"):
             continue
 
         tmp = global_.SYMBOL_TABLE.get_entry(node.name)
-        if tmp is None or tmp.class_ is CLASS.unknown:
+        if tmp is None or tmp.class_ == CLASS.unknown:
             errmsg.error(node.lineno, f'Undeclared identifier "{node.name}"')
         else:
             assert tmp.class_ == CLASS.label
-            node.to_label(node)
 
         result = result and tmp is not None
 
     return result
 
 
-def check_and_make_label(lbl: Union[str, int, float], lineno):
+def check_and_make_label(lbl: str | int | float, lineno):
     """Checks if the given label (or line number) is valid and, if so,
     returns a label object.
     :param lbl: Line number of label (string)
@@ -282,8 +271,8 @@ def is_null(*symbols_):
     return True
 
 
-def is_SYMBOL(token, *symbols_):
-    """Returns True if ALL of the given argument are AST nodes
+def is_SYMBOL(token: str, *symbols_: symbols.SYMBOL):
+    """Returns True if ALL the given argument are AST nodes
     of the given token (e.g. 'BINARY')
     """
     assert all(isinstance(x, symbols.SYMBOL) for x in symbols_)
@@ -295,19 +284,22 @@ def is_LABEL(*p):
 
 
 def is_string(*p):
-    return is_SYMBOL("STRING", *p)
+    """Returns True if ALL the arguments are AST nodes
+    containing STRING or string CONSTANTS
+    """
+    return all(is_SYMBOL("STRING", x) or is_const(x) and is_type(Type.string, x) for x in p)
 
 
 def is_const(*p):
     """A constant in the program, like CONST a = 5"""
-    return is_SYMBOL("VAR", *p) and all(x.class_ == CLASS.const for x in p)
+    return is_SYMBOL("CONST", *p)
 
 
 def is_CONST(*p):
     """Not to be confused with the above.
-    Check it's a CONSTant expression
+    Check it's a CONSTant EXPRession
     """
-    return is_SYMBOL("CONST", *p)
+    return is_SYMBOL("CONSTEXPR", *p)
 
 
 def is_static(*p):
@@ -318,31 +310,21 @@ def is_static(*p):
 
 
 def is_number(*p):
-    """Returns True if ALL of the arguments are AST nodes
+    """Returns True if ALL the arguments are AST nodes
     containing NUMBER or numeric CONSTANTS
     """
-    try:
-        return all(i.token == "NUMBER" or (i.token == "ID" and i.class_ == CLASS.const) for i in p)
-    except Exception:
-        pass
+    return all(isinstance(i, Symbol) and i.token in ("NUMBER", "CONST") and Type.is_numeric(i.type_) for i in p)
 
-    return False
+
+def is_static_str(*p):
+    return all(i.token == "STRING" for i in p)
 
 
 def is_var(*p):
-    """Returns True if ALL of the arguments are AST nodes
+    """Returns True if ALL the arguments are AST nodes
     containing ID
     """
     return is_SYMBOL("VAR", *p)
-
-
-def is_integer(*p):
-    try:
-        return all(i.is_basic and Type.is_integral(i.type_) for i in p)
-    except Exception:
-        pass
-
-    return False
 
 
 def is_unsigned(*p):
@@ -386,7 +368,7 @@ def is_type(type_, *p):
 
 
 def is_dynamic(*p):  # TODO: Explain this better
-    """True if all args are dynamic (e.g. Strings, dynamic arrays, etc)
+    """True if all args are dynamic (e.g. Strings, dynamic arrays, etc.)
     The use a ptr (ref) and it might change during runtime.
     """
     try:
@@ -399,7 +381,7 @@ def is_dynamic(*p):  # TODO: Explain this better
 
 def is_callable(*p):
     """True if all the args are functions and / or subroutines"""
-    return all(isinstance(x, symbols.FUNCTION) for x in p)
+    return all(x.token == "FUNCTION" for x in p)
 
 
 def is_block_accessed(block):
@@ -416,10 +398,10 @@ def is_block_accessed(block):
 
 def is_temporary_value(node) -> bool:
     """Returns if the AST node value is a variable or a temporary copy in the heap."""
-    return node.token not in ("PARAMDECL", "STRING", "VAR") and node.t[0] not in ("_", "#")
+    return node.token not in ("STRING", "VAR") and node.t[0] not in ("_", "#")
 
 
-def common_type(a, b):
+def common_type(a: symbols.TYPE | Type | None, b: symbols.TYPE | Type | None) -> symbols.TYPE | Type | None:
     """Returns a type which is common for both a and b types.
     Returns None if no common types allowed.
     """
@@ -448,7 +430,7 @@ def common_type(a, b):
     assert a.is_basic
     assert b.is_basic
 
-    types = (a, b)
+    types = a, b
 
     if Type.float_ in types:
         return Type.float_

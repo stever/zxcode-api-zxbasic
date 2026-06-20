@@ -1,11 +1,14 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 from .macrocall import MacroCall
 
 
-class Arg(object):
+class Arg:
     """Implements an argument (a list of tokens and macrocalls)"""
 
     def __init__(self, value=None, table=None):
@@ -42,7 +45,7 @@ class Arg(object):
                 yield x
 
 
-class ArgList(object):
+class ArgList:
     """Implements an arglist"""
 
     def __init__(self, table):

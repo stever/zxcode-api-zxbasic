@@ -1,28 +1,20 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-from typing import Optional
+from functools import cached_property
+from typing import Self
 
 import src.api.global_ as gl
-import src.api.errmsg as errmsg
-import src.api.check as check
-
+from src.api import check, errmsg
 from src.api.constants import SCOPE
-
-from .call import SymbolCALL
-from .number import SymbolNUMBER as NUMBER
-from .typecast import SymbolTYPECAST as TYPECAST
-from .binary import SymbolBINARY as BINARY
-from .vararray import SymbolVARARRAY
-from .arglist import SymbolARGLIST
+from src.symbols.arglist import SymbolARGLIST
+from src.symbols.call import SymbolCALL
+from src.symbols.id_ import SymbolID
+from src.symbols.typecast import SymbolTYPECAST as TYPECAST
 
 
 class SymbolARRAYACCESS(SymbolCALL):
@@ -42,14 +34,15 @@ class SymbolARRAYACCESS(SymbolCALL):
     def __init__(self, entry, arglist: SymbolARGLIST, lineno: int, filename: str):
         super().__init__(entry, arglist, lineno, filename)
         assert all(gl.BOUND_TYPE == x.type_.type_ for x in arglist), "Invalid type for array index"
+        self.entry.ref.is_dynamically_accessed = True
 
     @property
-    def entry(self):
+    def entry(self) -> SymbolID:
         return self.children[0]
 
     @entry.setter
-    def entry(self, value):
-        assert isinstance(value, SymbolVARARRAY)
+    def entry(self, value: SymbolID):
+        assert isinstance(value, SymbolID) and value.token == "VARARRAY"
         if self.children is None or not self.children:
             self.children = [value]
         else:
@@ -60,7 +53,7 @@ class SymbolARRAYACCESS(SymbolCALL):
         return self.entry.type_
 
     @property
-    def arglist(self):
+    def arglist(self) -> SymbolARGLIST:
         return self.children[1]
 
     @arglist.setter
@@ -72,8 +65,8 @@ class SymbolARRAYACCESS(SymbolCALL):
     def scope(self):
         return self.entry.scope
 
-    @property
-    def offset(self):
+    @cached_property
+    def offset(self) -> int | None:
         """If this is a constant access (e.g. A(1))
         return the offset in bytes from the beginning of the
         variable in memory.
@@ -90,19 +83,21 @@ class SymbolARRAYACCESS(SymbolCALL):
         for i, b in zip(self.arglist, self.entry.bounds):
             tmp = i.children[0]
             if check.is_number(tmp) or check.is_const(tmp):
-                if offset is not None:
-                    offset = offset * b.count + tmp.value
+                offset = offset * b.count + (tmp.value - b.lower)
             else:
-                offset = None
-                break
+                return None
 
-        if offset is not None:
-            offset *= self.type_.size
-
+        offset *= self.type_.size
         return offset
 
+    @cached_property
+    def is_constant(self) -> bool:
+        """Whether this array access is constant.
+        e.g. A(1) is constant. A(i) is not."""
+        return self.offset is None
+
     @classmethod
-    def make_node(cls, id_: str, arglist: SymbolARGLIST, lineno: int, filename: str) -> Optional["SymbolARRAYACCESS"]:
+    def make_node(cls, id_: str, arglist: SymbolARGLIST, lineno: int, filename: str) -> Self | None:
         """Creates an array access. A(x1, x2, ..., xn)"""
         assert isinstance(arglist, SymbolARGLIST)
         variable = gl.SYMBOL_TABLE.access_array(id_, lineno)
@@ -120,21 +115,12 @@ class SymbolARRAYACCESS(SymbolCALL):
             # e.g. A(1) is a constant subscript access
             btype = gl.SYMBOL_TABLE.basic_types[gl.BOUND_TYPE]
             for i, b in zip(arglist, variable.bounds):
-                lower_bound = NUMBER(b.lower, type_=btype, lineno=lineno)
-
                 if check.is_number(i.value) or check.is_const(i.value):
                     val = i.value.value
                     if val < b.lower or val > b.upper:
                         errmsg.warning(lineno, "Array '%s' subscript out of range" % id_)
 
-                i.value = BINARY.make_node(
-                    "MINUS",
-                    TYPECAST.make_node(btype, i.value, lineno),
-                    lower_bound,
-                    lineno,
-                    func=lambda x, y: x - y,
-                    type_=btype,
-                )
+                i.value = TYPECAST.make_node(btype, i.value, lineno)
         else:
             btype = gl.SYMBOL_TABLE.basic_types[gl.BOUND_TYPE]
             for arg in arglist:
@@ -142,3 +128,7 @@ class SymbolARRAYACCESS(SymbolCALL):
 
         # Returns the variable entry and the node
         return cls(variable, arglist, lineno, filename)
+
+    @classmethod
+    def copy_from(cls, other: Self) -> Self | None:
+        return cls(entry=other.entry, arglist=other.arglist, lineno=other.lineno, filename=other.filename)

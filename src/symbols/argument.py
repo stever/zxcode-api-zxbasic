@@ -1,24 +1,15 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
-
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 from src.api import global_ as gl
-
 from src.api.config import OPTIONS
-from src.api.constants import SCOPE
-from src.api.constants import CLASS
-
+from src.api.constants import CLASS, SCOPE
 from src.symbols.symbol_ import Symbol
 from src.symbols.typecast import SymbolTYPECAST
-from src.symbols.var import SymbolVAR
 
 
 class SymbolARGUMENT(Symbol):
@@ -39,11 +30,10 @@ class SymbolARGUMENT(Symbol):
         if self.byref or not self.type_.is_dynamic:
             return self.value.t
 
-        if self.value.token in ("VAR", "PARAMDECL"):
+        if self.value.token == "VAR":
             if self.value.scope == SCOPE.global_:
                 return self.value.t
-            else:
-                return self.value.t[1:]  # Removed '$' prefix
+            return self.value.t[1:]  # Removed '$' prefix
 
         return self.value.t
 
@@ -70,7 +60,7 @@ class SymbolARGUMENT(Symbol):
     @byref.setter
     def byref(self, value):
         if value:
-            assert isinstance(self.value, SymbolVAR)
+            assert self.value.token in ("VAR", "VARARRAY", "ARRAYLOAD")
         self._byref = value
 
     @property

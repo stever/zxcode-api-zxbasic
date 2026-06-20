@@ -1,18 +1,19 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:sw=4:
-
-from src.arch.z80 import beep
-from src.arch.z80.translator import *  # noqa
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import src.api.global_
 from src.api.constants import TYPE
+from src.arch.z80 import beep
 
+from .visitor.function_translator import FunctionTranslator
+from .visitor.translator import Translator
+from .visitor.var_translator import VarTranslator
 
-__all__ = [
-    "beep",
-]
-
+__all__ = "FunctionTranslator", "Translator", "VarTranslator", "beep"
 
 # -----------------------------------------
 # Arch initialization setup

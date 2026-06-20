@@ -1,24 +1,23 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:sw=4:et:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-import json
 import enum
+import json
+from enum import StrEnum
+from typing import Any, Final
 
-from typing import Dict
-from typing import List
-from typing import Any
+from src.api.exception import Error
 
-from src.api.errors import Error
-
-__all__ = ["Option", "Options", "ANYTYPE", "Action"]
+__all__: Final[tuple[str, ...]] = (
+    "ANYTYPE",
+    "Action",
+    "Option",
+    "Options",
+)
 
 
 class ANYTYPE:
@@ -56,7 +55,7 @@ class OptionStackUnderflowError(Error):
         return "Cannot pop option '%s'. Option stack is empty" % self.option
 
 
-class InvalidValueError(Error):
+class InvalidValueError(ValueError, Error):
     def __init__(self, option_name, _type, value):
         self.option = option_name
         self.value = value
@@ -106,7 +105,7 @@ class Option:
         self.ignore_none = ignore_none
         self.__value = None
         self.value = value
-        self.stack: List[Any] = []  # An option stack
+        self.stack: list[Any] = []  # An option stack
 
     @property
     def value(self) -> Any:
@@ -119,7 +118,7 @@ class Option:
 
         if value is not None and self.type is not None and not isinstance(value, self.type):
             try:
-                if isinstance(value, str) and self.type == bool:
+                if isinstance(value, str) and self.type is bool:
                     value = {
                         "false": False,
                         "true": True,
@@ -164,7 +163,7 @@ class Option:
 # Options commands
 # ----------------------------------------------------------------------
 @enum.unique
-class Action(str, enum.Enum):
+class Action(StrEnum):
     ADD = "add"
     ADD_IF_NOT_DEFINED = "add_if_not_defined"
     CLEAR = "clear"
@@ -182,7 +181,7 @@ class Options:
     """Class to store config options."""
 
     def __init__(self, init_value=None):
-        self._options: Dict[str, Option] = {}
+        self._options: dict[str, Option] = {}
 
         if init_value is not None:
             if isinstance(init_value, dict):
@@ -262,7 +261,7 @@ class Options:
         # With no parameters
         if not kwargs:
             if not args or args == (Action.LIST,):
-                return {x: y for x, y in self._options.items()}
+                return dict(self._options.items())
 
         assert args, f"Missing one action of {', '.join(Action)}"
         assert len(args) == 1 and Action.valid(args[0]), f"Only one action of {', '.join(Action)} can be specified"
@@ -271,7 +270,7 @@ class Options:
         if args[0] == Action.CLEAR:
             check_allowed_args(Action.CLEAR, kwargs, {})
             self._options.clear()
-            return
+            return None
 
         # list
         if args[0] == Action.LIST:
@@ -287,7 +286,7 @@ class Options:
             kwargs["type_"] = kwargs["type"]
             del kwargs["type"]
             self.__add_option(**kwargs)
-            return
+            return None
 
         if args[0] == Action.ADD_IF_NOT_DEFINED:
             kwargs["type"] = kwargs.get("type")

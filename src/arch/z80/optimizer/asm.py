@@ -1,35 +1,38 @@
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
+
 import re
 from functools import lru_cache
 
-from typing import Dict
-from typing import Tuple
-from typing import Optional
-from typing import List
-
-from .patterns import RE_OUTC, RE_INDIR16
-from .helpers import single_registers
 from src.zxbasm import z80
 
+from .helpers import single_registers
+from .patterns import RE_INDIR16, RE_OUTC
+
 # Dict of patterns to normalized instructions. I.e. 'ld a, 5' -> 'LD A,N'
-Z80_PATTERN: Dict[re.Pattern, z80.Opcode] = {}
+Z80_PATTERN: dict[re.Pattern, z80.Opcode] = {}
 
 
 class Asm:
     """Defines an asm instruction"""
 
-    __slots__ = "inst", "oper", "asm", "cond", "output", "_bytes", "_max_tstates", "is_label"
+    __slots__ = "_bytes", "_max_tstates", "asm", "cond", "inst", "is_label", "oper", "output"
 
-    _operands_cache: Dict[str, List[str]] = {}
+    _operands_cache: dict[str, list[str]] = {}
 
     def __init__(self, asm: str):
         asm = asm.strip()
-        assert asm, "Empty instruction '{}'".format(asm)
+        assert asm, f"Empty instruction '{asm}'"
         self.inst = Asm.instruction(asm)
         self.oper = Asm.opers(asm)
         self.asm = "{} {}".format(self.inst, " ".join(asm.split(" ", 1)[1:])).strip()
         self.cond = Asm.condition(asm)
         self.output = Asm.result(asm)
-        self._bytes: Optional[Tuple[str]] = None
+        self._bytes: tuple[str] | None = None
         self._max_tstates = None
         self.is_label = self.inst[-1] == ":"
 
@@ -44,7 +47,7 @@ class Asm:
         self._max_tstates = 0
 
     @property
-    def bytes(self) -> Tuple[str]:
+    def bytes(self) -> tuple[str]:
         """Returns the assembled bytes as a list of hexadecimal ones.
         Unknown bytes will be returned as 'XX'. e.g.:
         'ld a, 5' => ('3D', 'XX')
@@ -74,7 +77,7 @@ class Asm:
         return tmp.lower() if tmp.upper() in z80.Z80INSTR else tmp
 
     @staticmethod
-    def opers(inst: str) -> List[str]:
+    def opers(inst: str) -> list[str]:
         """Returns operands of an ASM instruction.
         Even "indirect" operands, like SP if RET or CALL is used.
         """
@@ -145,7 +148,7 @@ class Asm:
         return list(op)
 
     @staticmethod
-    def condition(asm) -> Optional[str]:
+    def condition(asm) -> str | None:
         """Returns the flag this instruction uses
         or None. E.g. 'c' for Carry, 'nz' for not-zero, etc.
         That is the condition required for this instruction
@@ -173,8 +176,8 @@ class Asm:
         return None
 
     @staticmethod
-    @lru_cache()
-    def result(asm: str) -> Tuple[str, ...]:
+    @lru_cache
+    def result(asm: str) -> tuple[str, ...]:
         """Returns which 8-bit registers (and SP for INC SP, DEC SP, etc.) are used by an asm
         instruction to return a result.
         """
@@ -193,8 +196,7 @@ class Asm:
         if ins in {"sub", "add", "sbc", "adc"}:
             if len(op) == 1:
                 return "a", "f"
-            else:
-                return tuple(single_registers(op[0]) + ["f"])
+            return tuple(single_registers(op[0]) + ["f"])
 
         if ins == "djnz":
             return "b", "f"
@@ -206,7 +208,7 @@ class Asm:
             return "f", "b", "c", "h", "l"
 
         if ins in ("pop", "ld"):
-            return single_registers(op[0])
+            return tuple(single_registers(op[0]))
 
         if ins in {"inc", "dec", "sbc", "rr", "rl", "rrc", "rlc"}:
             return tuple(["f"] + single_registers(op[0]))

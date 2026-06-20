@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, status, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
@@ -8,19 +9,16 @@ from app.routes.compile import compile_endpoint
 from app.process_monitor import process_monitor
 
 
-app = FastAPI()
-
-
-# Start the process monitor when app starts
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the process monitor when the app starts.
     process_monitor.start()
     print("Process monitor started - will kill compilation processes older than 8 seconds")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
+    yield
     process_monitor.stop()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # Security Headers Middleware

@@ -1,27 +1,22 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
+from collections.abc import Iterable
+from typing import Self
 
-from typing import Iterable
-from typing import Optional
-
-import src.api.check as check
-import src.api.errmsg as errmsg
 import src.api.global_ as gl
-
-from .symbol_ import Symbol
-from .function import SymbolFUNCTION
-from .arglist import SymbolARGLIST
-from .argument import SymbolARGUMENT
-from .var import SymbolVAR
-from .type_ import Type
+from src.api import check, errmsg
+from src.api.constants import CLASS
+from src.symbols.arglist import SymbolARGLIST
+from src.symbols.argument import SymbolARGUMENT
+from src.symbols.id_ import SymbolID
+from src.symbols.id_.ref import FuncRef
+from src.symbols.symbol_ import Symbol
+from src.symbols.type_ import Type
 
 
 class SymbolCALL(Symbol):
@@ -35,29 +30,37 @@ class SymbolCALL(Symbol):
         lineno: source code line where this call was made
     """
 
-    entry: SymbolFUNCTION
-
-    def __init__(self, entry: Symbol, arglist: Iterable[SymbolARGUMENT], lineno: int, filename: str):
-        super().__init__()
-        assert isinstance(lineno, int)
+    def __init__(self, entry: SymbolID, arglist: Iterable[SymbolARGUMENT], lineno: int, filename: str):
+        assert isinstance(entry, SymbolID)
         assert all(isinstance(x, SymbolARGUMENT) for x in arglist)
+        assert entry.class_ in (CLASS.array, CLASS.function, CLASS.sub, CLASS.unknown)
+
+        super().__init__()
         self.entry = entry
         self.args = arglist  # Func. call / array access
-        self.lineno = lineno
-        self.filename = filename
+        self.lineno: int = lineno
+        self.filename: str = filename
 
-        if isinstance(entry, SymbolFUNCTION):  # TODO: This condition is always True? If so => assert it
-            for arg, param in zip(arglist, entry.params):  # Sets dependency graph for each argument -> parameter
+        ref = entry.ref
+        if isinstance(ref, FuncRef):
+            for arg, param in zip(arglist, ref.params):  # Sets dependency graph for each argument -> parameter
                 if arg.value is not None:
                     arg.value.add_required_symbol(param)
+                    if (
+                        isinstance(arg.value, SymbolID)
+                        and arg.value.class_ == CLASS.array
+                        and param.class_ == CLASS.array
+                        and param.ref.is_dynamically_accessed is True
+                    ):
+                        arg.value.ref.is_dynamically_accessed = True
 
     @property
     def entry(self):
         return self.children[0]
 
     @entry.setter
-    def entry(self, value):
-        assert isinstance(value, SymbolFUNCTION)
+    def entry(self, value: SymbolID):
+        assert value.token == "FUNCTION"
         if self.children is None or not self.children:
             self.children = [value]
         else:
@@ -84,7 +87,7 @@ class SymbolCALL(Symbol):
         return self.entry.type_
 
     @classmethod
-    def make_node(cls, id_: str, params, lineno: int, filename: str) -> Optional["SymbolCALL"]:
+    def make_node(cls, id_: str, params, lineno: int, filename: str) -> Self | None:
         """This will return an AST node for a function/procedure call."""
         assert isinstance(params, SymbolARGLIST)
         entry = gl.SYMBOL_TABLE.access_func(id_, lineno)
@@ -97,17 +100,13 @@ class SymbolCALL(Symbol):
                 return None
 
         if entry.declared and not entry.forwarded:
-            check.check_call_arguments(lineno, id_, params)
-        else:  # All functions goes to global scope by default
-            if not isinstance(entry, SymbolFUNCTION):
-                entry = SymbolVAR.to_function(entry, lineno)
+            check.check_call_arguments(lineno, id_, params, filename)
+        else:  # All functions go to global scope by default
+            if entry.token != "FUNCTION":
+                entry = entry.to_function(lineno)
             gl.SYMBOL_TABLE.move_to_global_scope(id_)
-            gl.FUNCTION_CALLS.append(
-                (
-                    id_,
-                    params,
-                    lineno,
-                )
-            )
+            result = cls(entry, params, lineno, filename)
+            gl.FUNCTION_CALLS.append(result)
+            return result
 
         return cls(entry, params, lineno, filename)

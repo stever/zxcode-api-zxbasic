@@ -1,16 +1,21 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-# vim:ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-from typing import Dict, List, NamedTuple, Optional, Set
-from src.api.opcodestemps import OpcodesTemps
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Final, NamedTuple
+
 from src.api.constants import TYPE, LoopType
+from src.api.opcodestemps import OpcodesTemps
+
+if TYPE_CHECKING:
+    from src.symbols.call import SymbolCALL
+    from src.symbols.id_ import SymbolID
+
 
 # ----------------------------------------------------------------------
 # Simple global container for internal constants.
@@ -24,7 +29,7 @@ from src.api.constants import TYPE, LoopType
 class LoopInfo(NamedTuple):
     type: LoopType  # LOOP type: FOR, DO, LOOP, WHILE ...
     lineno: int  # line where this loop started
-    var: Optional[str] = None  # Var name used in FOR loop
+    var: str | None = None  # Var name used in FOR loop
 
 
 # ----------------------------------------------------------------------
@@ -39,14 +44,14 @@ optemps = OpcodesTemps()  # Must be initialized with OpcodesTemps()
 # which kind of loop the parser is in: e.g. 'FOR', 'WHILE', or 'DO'.
 # Nested loops are appended at the end, and popped out on loop exit.
 # ----------------------------------------------------------------------
-LOOPS: List[LoopInfo] = []
+LOOPS: list[LoopInfo] = []
 
 # ----------------------------------------------------------------------
 # Each new scope push the current LOOPS state and reset LOOPS. Upon
 # scope exit, the previous LOOPS is restored and popped out of the
 # META_LOOPS stack.
 # ----------------------------------------------------------------------
-META_LOOPS: List[List[LoopInfo]] = []
+META_LOOPS: list[list[LoopInfo]] = []
 
 # ----------------------------------------------------------------------
 # Number of parser (both syntactic & semantic) errors found. If not 0
@@ -85,7 +90,7 @@ SYMBOL_TABLE = None  # Must be initialized with SymbolTable instance
 # Function calls pending to check
 # Each scope pushes (prepends) an empty list
 # ----------------------------------------------------------------------
-FUNCTION_CALLS = []
+FUNCTION_CALLS: list[SymbolCALL] = []
 
 # ----------------------------------------------------------------------
 # Function level entry ID in which scope we are in. If the list
@@ -96,48 +101,48 @@ FUNCTION_LEVEL = []
 # ----------------------------------------------------------------------
 # Initialization routines to be called automatically at program start
 # ----------------------------------------------------------------------
-INITS: Set[str] = set([])
+INITS: set[str] = set()
 
 # ----------------------------------------------------------------------
 # FUNCTIONS pending to translate after parsing stage
 # ----------------------------------------------------------------------
-FUNCTIONS = []
+FUNCTIONS: list[SymbolID] = []
 
 # ----------------------------------------------------------------------
 # Parameter alignment. Must be set by arch.<arch>.__init__
 # ----------------------------------------------------------------------
-PARAM_ALIGN: Optional[int] = None  # Set to None, so if not set will raise error
+PARAM_ALIGN: int | None = None  # Set to None, so if not set will raise error
 
 # ----------------------------------------------------------------------
 # Data type used for array boundaries. Must be an integral
 # ----------------------------------------------------------------------
-BOUND_TYPE = None  # Set to None, so if not set will raise error
+BOUND_TYPE: TYPE  # Unset, so if not set will raise error
 
 # ----------------------------------------------------------------------
-# Data type used for elements size. Must be an integral
+# Data type used for elements size. Must be an integral type
 # ----------------------------------------------------------------------
 SIZE_TYPE: TYPE = TYPE.ubyte
 
 # ----------------------------------------------------------------------
-# CORE namespace (for core runtime library, like FP Calc)
+# CORE namespace (for core runtime stdlib, like FP Calc)
 # ----------------------------------------------------------------------
-CORE_NAMESPACE = ".core"
+CORE_NAMESPACE: Final[str] = ".core"
 
 # ----------------------------------------------------------------------
 # DATA Labels namespace
 # ----------------------------------------------------------------------
-DATAS_NAMESPACE = ".DATA"
+DATAS_NAMESPACE: Final[str] = ".DATA"
 
 # ----------------------------------------------------------------------
 # LABEL Labels namespace
 # ----------------------------------------------------------------------
-LABELS_NAMESPACE = ".LABEL"  # *MUST* start with a DOT (.)
+LABELS_NAMESPACE: Final[str] = ".LABEL"  # *MUST* start with a DOT (.)
 
 # ----------------------------------------------------------------------
 # USER DATA LABELS
 # ----------------------------------------------------------------------
-ZXBASIC_USER_DATA = f"{CORE_NAMESPACE}.ZXBASIC_USER_DATA"
-ZXBASIC_USER_DATA_LEN = f"{CORE_NAMESPACE}.ZXBASIC_USER_DATA_LEN"
+ZXBASIC_USER_DATA: Final[str] = f"{CORE_NAMESPACE}.ZXBASIC_USER_DATA"
+ZXBASIC_USER_DATA_LEN: Final[str] = f"{CORE_NAMESPACE}.ZXBASIC_USER_DATA_LEN"
 
 
 # ----------------------------------------------------------------------
@@ -148,29 +153,29 @@ STR_INDEX_TYPE: TYPE = TYPE.uinteger
 # ----------------------------------------------------------------------
 # MIN and MAX str slice index
 # ----------------------------------------------------------------------
-MIN_STRSLICE_IDX: Optional[int] = None  # Min. string slicing position
-MAX_STRSLICE_IDX: Optional[int] = None  # Max. string slicing position
+MIN_STRSLICE_IDX: int | None = None  # Min. string slicing position
+MAX_STRSLICE_IDX: int | None = None  # Max. string slicing position
 
 # ----------------------------------------------------------------------
 # Type used internally for pointer and memory addresses
 # ----------------------------------------------------------------------
-PTR_TYPE = None
+PTR_TYPE: TYPE  # Unset, so if not set will raise error
 
 # ----------------------------------------------------------------------
 # Character used for name mangling. Usually '_' or '.'
 # ----------------------------------------------------------------------
-MANGLE_CHR = "_"
-NAMESPACE_SEPARATOR = "."
+MANGLE_CHR: Final[str] = "_"
+NAMESPACE_SEPARATOR: Final[str] = "."
 
 # ----------------------------------------------------------------------
 # Prefix used in labels to mark the beginning of array data
 # ----------------------------------------------------------------------
-ARRAY_DATA_PREFIX = "__DATA__"
+ARRAY_DATA_PREFIX: Final[str] = "__DATA__"
 
 # ----------------------------------------------------------------------
 # Default optimization level
 # ----------------------------------------------------------------------
-DEFAULT_OPTIMIZATION_LEVEL = 2  # Optimization level. Higher -> more optimized
+DEFAULT_OPTIMIZATION_LEVEL: Final[int] = 2  # Optimization level. Higher -> more optimized
 
 # ----------------------------------------------------------------------
 # DATA blocks
@@ -185,7 +190,7 @@ DATA_FUNCTIONS = []  # Counts the number of funcptrs emitted
 # ----------------------------------------------------------------------
 # Cache of Message errors to avoid repetition
 # ----------------------------------------------------------------------
-error_msg_cache: Set[str] = set()
+error_msg_cache: set[str] = set()
 
 
 # ----------------------------------------------------------------------
@@ -193,7 +198,7 @@ error_msg_cache: Set[str] = set()
 # ----------------------------------------------------------------------
 
 # Warning codes and whether they're enabled or not
-ENABLED_WARNINGS: Dict[str, bool] = {}
+ENABLED_WARNINGS: dict[str, bool] = {}
 
 # Number of expected warnings (won't be issued)
 EXPECTED_WARNINGS: int = 0

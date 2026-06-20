@@ -1,22 +1,19 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License
-# ----------------------------------------------------------------------
-
-from .symbol_ import Symbol
+from src.symbols.id_.interface import SymbolIdABC as SymbolID
+from src.symbols.symbol_ import Symbol
 
 
 class SymbolPARAMLIST(Symbol):
     """Defines a list of parameters definitions in a function header"""
 
     def __init__(self, *params):
-        super(SymbolPARAMLIST, self).__init__(*params)
+        super().__init__(*params)
         self.size = 0
 
     def __getitem__(self, key):
@@ -28,8 +25,12 @@ class SymbolPARAMLIST(Symbol):
     def __len__(self):
         return len(self.children)
 
+    def __iter__(self):
+        for child in self.children:
+            yield child
+
     @classmethod
-    def make_node(cls, node, *params):
+    def make_node(cls, node, *params: list[SymbolID]):
         """This will return a node with a param_list
         (declared in a function declaration)
         Parameters:
@@ -44,6 +45,7 @@ class SymbolPARAMLIST(Symbol):
 
         for i in params:
             if i is not None:
+                assert i.t
                 node.append_child(i)
 
         return node
@@ -51,6 +53,6 @@ class SymbolPARAMLIST(Symbol):
     def append_child(self, param):
         """Overrides base class."""
         Symbol.append_child(self, param)
-        if param.offset is None:
-            param.offset = self.size
+        if param.ref.offset is None:
+            param.ref.offset = self.size
             self.size += param.size

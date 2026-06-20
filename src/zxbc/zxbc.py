@@ -1,30 +1,28 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# vim: ts=4:sw=4:et:
 
-import sys
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
+
 import re
-
+import sys
+from argparse import Namespace
 from io import StringIO
 
-import src.arch.z80.backend.common
-from src import arch
-
 import src.api.optimize
-
-from src.api import config
-from src.api import debug
+from src import arch
+from src.api import config, debug
 from src.api import global_ as gl
-
-from src.zxbpp import zxbpp
-from src.zxbasm import asmparse
-
 from src.api.config import OPTIONS
 from src.api.utils import open_file
-
-from src.zxbc import zxbparser
-from src.zxbc import zxblex
-from src.zxbc.args_config import parse_options, FileType
+from src.zxbasm import asmparse
+from src.zxbc import zxblex, zxbparser
+from src.zxbc.args_config import parse_options, set_option_defines
+from src.zxbc.args_parser import FileType
+from src.zxbpp import zxbpp
 from src.zxbpp.zxbpp import PreprocMode
 
 RE_INIT = re.compile(
@@ -60,7 +58,7 @@ def output(memory, ofile=None):
         # Prints a 4 spaces "tab" for non labels
         if m and ":" not in m:
             if ofile is None:
-                print("    "),
+                (print("    "),)
             else:
                 ofile.write("\t")
 
@@ -70,25 +68,30 @@ def output(memory, ofile=None):
             ofile.write("%s\n" % m)
 
 
-def main(args=None, emitter=None):
+def save_config(options: Namespace) -> None:
+    if not gl.has_errors and options.save_config:
+        src.api.config.save_config_into_file(options.save_config, src.api.config.ConfigSections.ZXBC)
+
+
+def main(args=None, emitter=None) -> int:
     """Entry point when executed from command line.
     zxbc can be used as python module. If so, bear in mind this function
     won't be executed unless explicitly called.
     """
     # region [Initialization]
     config.init()
-    zxbpp.init()
     zxbparser.init()
-    arch.target.backend.init()
+    arch.target.backend.Backend().init()
     arch.target.Translator.reset()
     asmparse.init()
-    # endregion
 
     options = parse_options(args)
+    zxbpp.init()
     arch.set_target_arch(OPTIONS.architecture)
     arch.target.Translator.reset()
-    backend = arch.target.backend
+    backend = arch.target.backend.Backend()
     backend.init()  # Must reinitialize it again
+    # endregion
 
     args = [options.PROGRAM]  # Strip out other options, because they're already set in the OPTIONS container
     input_filename = options.PROGRAM
@@ -119,15 +122,23 @@ def main(args=None, emitter=None):
     optimizer.visit(zxbparser.ast)
 
     # Emits intermediate code
-    translator = arch.target.Translator()
+    translator = arch.target.Translator(backend)
     translator.visit(zxbparser.ast)
 
     if gl.DATA_IS_USED:
         gl.FUNCTIONS.extend(gl.DATA_FUNCTIONS)
 
     # This will fill MEMORY with pending functions
-    func_visitor = arch.target.FunctionTranslator(gl.FUNCTIONS)
+    func_visitor = arch.target.FunctionTranslator(backend=backend, function_list=gl.FUNCTIONS)
     func_visitor.start()
+
+    if gl.has_errors:
+        debug.__DEBUG__("exiting due to errors.")
+        return 1  # Exit with errors
+
+    if options.parse_only:
+        save_config(options)
+        return gl.has_errors
 
     # Emits data lines
     translator.emit_data_blocks()
@@ -138,6 +149,10 @@ def main(args=None, emitter=None):
     # Signals end of user code
     translator.ic_inline(";; --- end of user code ---")
 
+    if gl.has_errors:
+        debug.__DEBUG__("exiting due to errors.")
+        return 1  # Exit with errors
+
     if OPTIONS.emit_backend:
         with open_file(OPTIONS.output_filename, "wt", "utf-8") as output_file:
             for quad in translator.dumpMemory(backend.MEMORY):
@@ -145,7 +160,7 @@ def main(args=None, emitter=None):
 
             backend.MEMORY[:] = []  # Empties memory
             # This will fill MEMORY with global declared variables
-            translator = arch.target.VarTranslator()
+            translator = arch.target.VarTranslator(backend=backend)
             translator.visit(zxbparser.data_ast)
 
             for quad in translator.dumpMemory(backend.MEMORY):
@@ -153,8 +168,8 @@ def main(args=None, emitter=None):
         return 0  # Exit success
 
     # Join all lines into a single string and ensures an INTRO at end of file
-    asm_output = backend.emit(backend.MEMORY, optimize=OPTIONS.optimization_level > 0)
-    asm_output = arch.target.optimizer.optimize(asm_output) + "\n"  # invoke the peephole optimizer
+    asm_output = backend.emit(optimize=OPTIONS.optimization_level > 0)
+    asm_output = arch.target.optimizer.Optimizer().optimize(asm_output) + "\n"  # invoke the peephole optimizer
 
     asm_output = asm_output.split("\n")
     for i in range(len(asm_output)):
@@ -165,7 +180,9 @@ def main(args=None, emitter=None):
     asm_output = "\n".join(asm_output)
 
     # Now filter them against the preprocessor again
-    zxbpp.setMode("asm")
+    set_option_defines()  # Needed for zxbpp.init()
+    zxbpp.reset_id_table()
+    zxbpp.setMode(zxbpp.PreprocMode.ASM)
     zxbpp.OUTPUT = ""
     zxbpp.filter_(asm_output, filename=input_filename)
 
@@ -177,19 +194,19 @@ def main(args=None, emitter=None):
     # This will fill MEMORY with global declared variables
     var_checker = src.api.optimize.VariableVisitor()
     var_checker.visit(zxbparser.data_ast)
-    translator = arch.target.VarTranslator()
+    translator = arch.target.VarTranslator(backend=backend)
     translator.visit(zxbparser.data_ast)
     if gl.has_errors:
         debug.__DEBUG__("exiting due to errors.")
         return 1  # Exit with errors
 
-    tmp = [x for x in backend.emit(backend.MEMORY, optimize=False) if x.strip()[0] != "#"]
+    tmp = [x for x in backend.emit(optimize=False) if x.strip()[0] != "#"]
     asm_output = (
-        backend.emit_start()
+        backend.emit_prologue()
         + tmp
         + ["%s:" % src.arch.z80.backend.common.DATA_END_LABEL, "%s:" % src.arch.z80.backend.common.MAIN_LABEL]
         + asm_output
-        + backend.emit_end()
+        + backend.emit_epilogue()
     )
 
     if OPTIONS.output_file_type == FileType.ASM:  # Only output assembler file
@@ -215,8 +232,7 @@ def main(args=None, emitter=None):
             with open_file(OPTIONS.memory_map, "wt", "utf-8") as f:
                 f.write(asmparse.MEMORY.memory_map)
 
-    if not gl.has_errors and options.save_config:
-        src.api.config.save_config_into_file(options.save_config, src.api.config.ConfigSections.ZXBC)
+    save_config(options)
 
     return gl.has_errors  # Exit success
 

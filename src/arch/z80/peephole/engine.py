@@ -1,23 +1,27 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-import sys
 import os
-
-from typing import Dict
-from typing import Iterable
-from typing import List
-from typing import Optional
+from collections.abc import Iterable
 from typing import NamedTuple
-from typing import Union
 
-from src.api import errmsg
-from src.api import debug
-
+from src.api import debug, errmsg
 from src.arch.z80.peephole import parser
-from src.arch.z80.peephole.parser import REG_IF, REG_REPLACE, REG_DEFINE, REG_WITH, O_LEVEL, O_FLAG
-from src.arch.z80.peephole.pattern import BlockPattern
 from src.arch.z80.peephole.evaluator import Evaluator
+from src.arch.z80.peephole.parser import (
+    O_FLAG,
+    O_LEVEL,
+    REG_DEFINE,
+    REG_IF,
+    REG_REPLACE,
+    REG_WITH,
+    DefineLine,
+)
+from src.arch.z80.peephole.pattern import BlockPattern
 from src.arch.z80.peephole.template import BlockTemplate
 
 
@@ -27,21 +31,21 @@ class OptPattern(NamedTuple):
     patt: BlockPattern
     cond: Evaluator
     template: BlockTemplate
-    parsed: Dict[str, Union[List[str], int]]
-    defines: int
+    parsed: dict[str, list[str] | int]
+    defines: list[tuple[str, DefineLine]]
     fname: str
 
 
 OPTS_PATH = os.path.join(os.path.dirname(__file__), "opts")
 
 # Global list of optimization patterns
-PATTERNS: List[OptPattern] = []
+PATTERNS: list[OptPattern] = []
 
 # Max len of any pattern read
 MAXLEN: int = 0
 
 
-def read_opt(opt_path: str) -> Optional[OptPattern]:
+def read_opt(opt_path: str) -> OptPattern | None:
     """Given a path to an opt file, parses it and returns an OptPattern
     object, or None if there were errors
     """
@@ -69,7 +73,7 @@ def read_opt(opt_path: str) -> Optional[OptPattern]:
 
         for var_, define_ in pattern_.defines:
             if var_ in pattern_.patt.vars:
-                errmsg.warning(define_.lineno, "variable '{0}' already defined in pattern".format(var_), fpath)
+                errmsg.warning(define_.lineno, f"variable '{var_}' already defined in pattern", fpath)
                 errmsg.warning(define_.lineno, "this template will be ignored", fpath)
                 return None
 
@@ -82,7 +86,7 @@ def read_opt(opt_path: str) -> Optional[OptPattern]:
     return None
 
 
-def read_opts(folder_path: str, result: Optional[List[OptPattern]] = None) -> List[OptPattern]:
+def read_opts(folder_path: str, result: list[OptPattern] | None = None) -> list[OptPattern]:
     """Reads (and parses) all *.opt files from the given directory
     retaining only those with no errors.
     """
@@ -105,7 +109,7 @@ def read_opts(folder_path: str, result: Optional[List[OptPattern]] = None) -> Li
     return result
 
 
-def apply_match(asm_list: List[str], patterns_list: Iterable[OptPattern], index: int = 0) -> bool:
+def apply_match(asm_list: list[str], patterns_list: Iterable[OptPattern], index: int = 0) -> bool:
     """Tries to match optimization patterns against the given ASM list block, starting
     at offset `index` within that block.
 
@@ -146,7 +150,7 @@ def init():
     PATTERNS.clear()
 
 
-def main(list_of_directories: Optional[List[str]] = None, force: bool = False):
+def main(list_of_directories: list[str] | None = None, force: bool = False):
     """Initializes the module and load all the *.opt files
     containing patterns and parses them. Valid .opt files will be stored in
     PATTERNS
@@ -161,7 +165,3 @@ def main(list_of_directories: Optional[List[str]] = None, force: bool = False):
 
     for directory in list_of_directories or [OPTS_PATH]:
         read_opts(directory, PATTERNS)
-
-
-if __name__ == "__main__":
-    main(sys.argv[1:])

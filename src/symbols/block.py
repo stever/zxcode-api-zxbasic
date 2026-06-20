@@ -1,15 +1,11 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:et:sw=4:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# Copyleft (K), Jose M. Rodriguez-Rosa (a.k.a. Boriel)
-#
-# This program is Free Software and is released under the terms of
-#                    the GNU General License v3
-# ----------------------------------------------------------------------
-
-import src.api.check as check
+from src.api import check
 
 from .symbol_ import Symbol
 
@@ -37,7 +33,7 @@ class SymbolBLOCK(Symbol):
         if not isinstance(other, SymbolBLOCK):
             return False
 
-        return len(self) == len(other) and all([x == y for x, y in zip(self, other)])
+        return len(self) == len(other) and all(x == y for x, y in zip(self, other))
 
     def __hash__(self):
         return id(self)

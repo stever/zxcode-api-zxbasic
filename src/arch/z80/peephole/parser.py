@@ -1,27 +1,24 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-import sys
 import re
 from collections import defaultdict
+from types import MappingProxyType
+from typing import Any, Final, NamedTuple
 
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import NamedTuple
-from typing import Optional
-from typing import Tuple
-from typing import Union
+from src.api import errmsg, global_
 
-import src.api.global_
+from . import pattern
+from .evaluator import BINARY, FN, OPERS, UNARY, Evaluator
 
-from src.arch.z80.peephole import evaluator
-from src.arch.z80.peephole import pattern
+TreeType = list[str | list["TreeType"]]
 
-TreeType = List[Union[str, List[Any]]]
-
-COMMENT = ";;"
-RE_REGION = re.compile(r"([_a-zA-Z][a-zA-Z0-9]*)[ \t]*{{")
+COMMENT: Final[str] = ";;"
+RE_REGION = re.compile(r"([_a-zA-Z][a-zA-Z0-9]*)[ \t]*\{\{$")
 RE_DEF = re.compile(r"([_a-zA-Z][a-zA-Z0-9]*)[ \t]*:[ \t]*(.*)")
 RE_IFPARSE = re.compile(r'"(""|[^"])*"|[(),]|\b[_a-zA-Z]+\b|[^," \t()]+')
 RE_ID = re.compile(r"\b[_a-zA-Z]+\b")
@@ -35,20 +32,22 @@ REG_DEFINE = "DEFINE"
 O_LEVEL = "OLEVEL"
 O_FLAG = "OFLAG"
 
-# Operators : priority (lower number -> highest priority)
-IF_OPERATORS = {
-    evaluator.OP_NMUL: 3,
-    evaluator.OP_NDIV: 3,
-    evaluator.OP_PLUS: 5,
-    evaluator.OP_NPLUS: 5,
-    evaluator.OP_NSUB: 5,
-    evaluator.OP_NE: 10,
-    evaluator.OP_EQ: 10,
-    evaluator.OP_AND: 15,
-    evaluator.OP_OR: 20,
-    evaluator.OP_IN: 25,
-    evaluator.OP_COMMA: 30,
-}
+# Operators : precedence (lower number -> highest priority)
+IF_OPERATORS: Final[MappingProxyType[FN, int]] = MappingProxyType(
+    {
+        FN.OP_NMUL: 3,
+        FN.OP_NDIV: 3,
+        FN.OP_PLUS: 5,
+        FN.OP_NPLUS: 5,
+        FN.OP_NSUB: 5,
+        FN.OP_NE: 10,
+        FN.OP_EQ: 10,
+        FN.OP_AND: 15,
+        FN.OP_OR: 20,
+        FN.OP_IN: 25,
+        FN.OP_COMMA: 30,
+    }
+)
 
 
 # Which one of the above are REGIONS (that is, {{ ... }} blocks)
@@ -62,7 +61,11 @@ NUMERIC = {O_FLAG, O_LEVEL}
 REQUIRED = (REG_REPLACE, REG_WITH, O_LEVEL, O_FLAG)
 
 
-def simplify_expr(expr: List[Any]) -> List[Any]:
+class PeepholeParserSyntaxError(SyntaxError):
+    pass
+
+
+def simplify_expr(expr: list[Any]) -> list[Any]:
     """Simplifies ("unnest") a list, removing redundant brackets.
     i.e. [[x, [[y]]] becomes [x, [y]]
     """
@@ -84,35 +87,65 @@ class SourceLine(NamedTuple):
 # Defines a define expr with its linenum
 class DefineLine(NamedTuple):
     lineno: int
-    expr: evaluator.Evaluator
+    expr: Evaluator
 
 
-def parse_ifline(if_line: str, lineno: int) -> Optional[TreeType]:
-    """Given a line from within a IF region (i.e. $1 == "af'")
-    returns it as a list of tokens ['$1', '==', "af'"]
-    """
-    stack: List[TreeType] = []
-    expr: TreeType = []
-    paren = 0
-    error_ = False
+class Tokenizer:
+    def __init__(self, source: str, lineno: int) -> None:
+        self.source = source
+        self.lineno = lineno
 
-    while not error_ and if_line:
-        if_line = if_line.strip()
-        if not if_line:
-            break
-        qq = RE_IFPARSE.match(if_line)
+    def get_token(self) -> str:
+        """Returns next token, or "" as EOL"""
+        tok = self.lookahead()
+        self.source = self.source[len(tok) :]
+        return tok
+
+    def get_next_token(self) -> str:
+        if self.has_finished():
+            raise PeepholeParserSyntaxError("Unexpected EOL")
+
+        return self.get_token()
+
+    def has_finished(self) -> bool:
+        return self.source == ""
+
+    def lookahead(self) -> str:
+        """Returns next token, or "" as EOL"""
+        self.source = self.source.strip()
+        if self.has_finished():
+            return ""
+
+        qq = RE_IFPARSE.match(self.source)
         if not qq:
-            error_ = True
-            break
+            raise PeepholeParserSyntaxError(f"Syntax error in line {self.lineno}: {self.source}")
 
         tok = qq.group()
         if not RE_ID.match(tok):
-            for oper in evaluator.OPERS:
+            for oper in OPERS:
                 if tok.startswith(oper):
                     tok = tok[: len(oper)]
                     break
 
-        if_line = if_line[len(tok) :]
+        return tok
+
+
+def parse_ifline(if_line: str, lineno: int) -> TreeType | None:
+    """Given a line from within a IF region (i.e. $1 == "af'")
+    returns it as a list of tokens ['$1', '==', "af'"]
+    """
+    stack: list[TreeType] = []
+    expr: TreeType = []
+    paren = 0
+    error_ = False
+    tokenizer = Tokenizer(if_line, lineno)
+
+    while not tokenizer.has_finished():
+        try:
+            tok = tokenizer.get_token()
+        except PeepholeParserSyntaxError as e:
+            errmsg.warning(lineno, str(e))
+            return None
 
         if tok == "(":
             paren += 1
@@ -120,7 +153,7 @@ def parse_ifline(if_line: str, lineno: int) -> Optional[TreeType]:
             expr = []
             continue
 
-        if tok in evaluator.UNARY:
+        if tok in UNARY:
             stack.append(expr)
             expr = [tok]
             continue
@@ -128,11 +161,15 @@ def parse_ifline(if_line: str, lineno: int) -> Optional[TreeType]:
         if tok == ")":
             paren -= 1
             if paren < 0:
-                src.api.errmsg.warning(lineno, "Too much closed parenthesis")
+                errmsg.warning(lineno, "Too much closed parenthesis")
                 return None
 
-            if expr and expr[-1] == evaluator.OP_COMMA:
-                src.api.errmsg.warning(lineno, "missing element in list")
+            if expr and expr[-1] == FN.OP_COMMA:
+                errmsg.warning(lineno, "missing element in list")
+                return None
+
+            if any(x != FN.OP_COMMA for i, x in enumerate(expr) if i % 2):
+                errmsg.warning(lineno, f"Invalid list {expr}")
                 return None
 
             stack[-1].append(expr)
@@ -142,31 +179,40 @@ def parse_ifline(if_line: str, lineno: int) -> Optional[TreeType]:
                 tok = tok[1:-1]
             expr.append(tok)
 
-        if tok == evaluator.OP_COMMA:
+        if tok == FN.OP_COMMA:
             if len(expr) < 2 or expr[-2] == tok:
-                src.api.errmsg.warning(lineno, "Unexpected {} in list".format(tok))
+                errmsg.warning(lineno, f"Unexpected {tok} in list")
                 return None
 
-        while len(expr) == 2 and isinstance(expr[-2], str):
-            op: Union[str, TreeType] = expr[-2]
-            if op in evaluator.UNARY:
+        while len(expr) == 2 and isinstance(expr[0], str):
+            op: str = expr[0]
+            if op in UNARY:
                 stack[-1].append(expr)
                 expr = stack.pop()
             else:
                 break
 
-        if len(expr) == 3 and expr[1] != evaluator.OP_COMMA:
-            left_, op, right_ = expr  # type: ignore
+        if len(expr) == 3 and expr[1] != FN.OP_COMMA:
+            left_, op, right_ = expr
             if not isinstance(op, str) or op not in IF_OPERATORS:
-                src.api.errmsg.warning(lineno, "Unexpected binary operator '{0}'".format(op))
+                errmsg.warning(lineno, f"Unexpected binary operator '{op}'")
                 return None
-            if isinstance(left_, list) and len(left_) == 3 and IF_OPERATORS[left_[-2]] > IF_OPERATORS[op]:
-                expr = [[left_[:-2], left_[-2], [left_[-1], op, right_]]]  # Rebalance tree
-            else:
-                expr = [expr]
 
-    if not error_ and paren:
-        src.api.errmsg.warning(lineno, "unclosed parenthesis in IF section")
+            oper = FN(op)
+            if isinstance(left_, list) and len(left_) == 3:
+                oper2 = FN(left_[-2])
+                if IF_OPERATORS[oper2] > IF_OPERATORS[oper]:
+                    expr = [[left_[:-2], left_[-2], [left_[-1], op, right_]]]  # Rebalance tree
+                    continue
+
+            expr = [expr]
+
+    if error_:
+        errmsg.warning(lineno, "syntax error in IF section")
+        return None
+
+    if paren:
+        errmsg.warning(lineno, "unclosed parenthesis in IF section")
         return None
 
     while stack and not error_:
@@ -175,32 +221,41 @@ def parse_ifline(if_line: str, lineno: int) -> Optional[TreeType]:
 
         if len(expr) == 2:
             op = expr[0]
-            if not isinstance(op, str) or op not in evaluator.UNARY:
-                src.api.errmsg.warning(lineno, "unexpected unary operator '{0}'".format(op))
+            if not isinstance(op, str) or op not in UNARY:
+                errmsg.warning(lineno, f"unexpected unary operator '{op}'")
                 return None
         elif len(expr) == 3:
             op = expr[1]
-            if not isinstance(op, str) or op not in evaluator.BINARY:
-                src.api.errmsg.warning(lineno, "unexpected binary operator '{0}'".format(op))
+            if not isinstance(op, str) or op not in BINARY:
+                errmsg.warning(lineno, f"unexpected binary operator '{op}'")
                 return None
 
-    if error_:
-        src.api.errmsg.warning(lineno, "syntax error in IF section")
+    expr = simplify_expr(expr)
+    if len(expr) == 2 and isinstance(expr[-1], str) and expr[-1] in BINARY:
+        errmsg.warning(lineno, f"Unexpected binary operator '{expr[-1]}'")
         return None
 
-    return simplify_expr(expr)
+    if len(expr) == 3 and (expr[1] not in BINARY or expr[1] == FN.OP_COMMA):
+        errmsg.warning(lineno, f"Unexpected binary operator '{expr[1]}'")
+        return None
+
+    if len(expr) > 3:
+        errmsg.warning(lineno, "Lists not allowed in IF section condition. Missing operator")
+        return None
+
+    return expr
 
 
-def parse_define_line(sourceline: SourceLine) -> Tuple[Optional[str], Optional[TreeType]]:
+def parse_define_line(sourceline: SourceLine) -> tuple[str | None, TreeType | None]:
     """Given a line $nnn = <expression>, returns a tuple the parsed
     ("$var", [expression]) or None, None if error."""
     if "=" not in sourceline.line:
-        src.api.errmsg.warning(sourceline.lineno, "assignation '=' not found")
+        errmsg.warning(sourceline.lineno, "assignation '=' not found")
         return None, None
 
-    result: List[str] = [x.strip() for x in sourceline.line.split("=", 1)]
+    result: list[str] = [x.strip() for x in sourceline.line.split("=", 1)]
     if not pattern.RE_SVAR.match(result[0]):  # Define vars
-        src.api.errmsg.warning(sourceline.lineno, "'{0}' not a variable name".format(result[0]))
+        errmsg.warning(sourceline.lineno, f"'{result[0]}' not a variable name")
         return None, None
 
     right_part = parse_ifline(result[1], sourceline.lineno)
@@ -210,7 +265,7 @@ def parse_define_line(sourceline: SourceLine) -> Tuple[Optional[str], Optional[T
     return result[0], right_part
 
 
-def parse_str(spec: str) -> Optional[Dict[str, Union[str, int, TreeType]]]:
+def parse_str(spec: str) -> dict[str, str | int | TreeType] | None:
     """Given a string with an optimizer template definition,
     parses it and return a python object as a result.
     If any error is detected, fname will be used as filename.
@@ -219,26 +274,26 @@ def parse_str(spec: str) -> Optional[Dict[str, Union[str, int, TreeType]]]:
     ST_INITIAL = 0
     ST_REGION = 1
 
-    result: Dict[str, Any] = defaultdict(list)
+    result: dict[str, Any] = defaultdict(list)
     state = ST_INITIAL
     line_num = 0
     region_name = None
     is_ok = True
 
-    def add_entry(key: str, val: Union[str, int, TreeType]) -> bool:
+    def add_entry(key: str, val: str | int | TreeType) -> bool:
         key = key.upper()
         if key in result:
-            src.api.errmsg.warning(line_num, "duplicated definition {0}".format(key))
+            errmsg.warning(line_num, f"duplicated definition {key}")
             return False
 
         if key not in REGIONS and key not in SCALARS:
-            src.api.errmsg.warning(line_num, "unknown definition parameter '{0}'".format(key))
+            errmsg.warning(line_num, f"unknown definition parameter '{key}'")
             return False
 
         if key in NUMERIC:
             assert isinstance(val, str)
             if not RE_INT.match(val):
-                src.api.errmsg.warning(line_num, "field '{0} must be integer".format(key))
+                errmsg.warning(line_num, f"field '{key} must be integer")
                 return False
             val = int(val)
 
@@ -247,7 +302,7 @@ def parse_str(spec: str) -> Optional[Dict[str, Union[str, int, TreeType]]]:
 
     def check_entry(key: str) -> bool:
         if key not in result:
-            src.api.errmsg.warning(line_num, "undefined section {0}".format(key))
+            errmsg.warning(line_num, f"undefined section {key}")
             return False
 
         return True
@@ -288,7 +343,7 @@ def parse_str(spec: str) -> Optional[Dict[str, Union[str, int, TreeType]]]:
                 region_name = None
             continue
 
-        src.api.errmsg.warning(line_num, "syntax error. Cannot parse file")
+        errmsg.warning(line_num, "syntax error. Cannot parse file")
         is_ok = False
         break
 
@@ -300,10 +355,10 @@ def parse_str(spec: str) -> Optional[Dict[str, Union[str, int, TreeType]]]:
             is_ok = False
             break
         if var_ in defined_vars:
-            src.api.errmsg.warning(source_line.lineno, "duplicated variable '{0}'".format(var_))
+            errmsg.warning(source_line.lineno, f"duplicated variable '{var_}'")
             is_ok = False
             break
-        defines.append([var_, DefineLine(expr=evaluator.Evaluator(expr), lineno=source_line.lineno)])
+        defines.append([var_, DefineLine(expr=Evaluator(expr), lineno=source_line.lineno)])
         defined_vars.add(var_)
     result[REG_DEFINE] = defines
 
@@ -322,27 +377,23 @@ def parse_str(spec: str) -> Optional[Dict[str, Union[str, int, TreeType]]]:
 
     if is_ok:
         if not result[REG_REPLACE]:  # Empty REPLACE region??
-            src.api.errmsg.warning(line_num, "empty region {0}".format(REG_REPLACE))
+            errmsg.warning(line_num, f"empty region {REG_REPLACE}")
             is_ok = False
 
     if not is_ok:
-        src.api.errmsg.warning(line_num, "this optimizer template will be ignored due to errors")
+        errmsg.warning(line_num, "this optimizer template will be ignored due to errors")
         return None
 
     return result
 
 
-def parse_file(fname: str):
+def parse_file(fname: str) -> dict[str, str | int | list[str | list]] | None:
     """Opens and parse a file given by filename"""
-    tmp = src.api.global_.FILENAME
-    src.api.global_.FILENAME = fname  # set filename so it shows up in error/warning msgs
+    tmp = global_.FILENAME
+    global_.FILENAME = fname  # set filename so it shows up in error/warning msgs
 
-    with open(fname, "rt") as f:
+    with open(fname, "rt", encoding="utf-8") as f:
         result = parse_str(f.read())
 
-    src.api.global_.FILENAME = tmp  # restores original filename
+    global_.FILENAME = tmp  # restores original filename
     return result
-
-
-if __name__ == "__main__":
-    print(parse_file(sys.argv[1]))

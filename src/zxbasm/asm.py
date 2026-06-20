@@ -1,11 +1,17 @@
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
+
 from typing import Any, NamedTuple
 
 from src.api import errmsg
 from src.api import global_ as gl
-
-from src.api.errors import Error
-from src.zxbasm.expr import Expr
+from src.api.exception import Error
 from src.zxbasm.asm_instruction import AsmInstruction
+from src.zxbasm.expr import Expr
 
 
 class Container(NamedTuple):

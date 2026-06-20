@@ -1,46 +1,58 @@
-# -*- coding: utf-8 -*-
-
-# ----------------------------------------------------------
-# Generic instructions
-# ----------------------------------------------------------
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 import re
 
 from src.api.config import OPTIONS
 from src.api.fp import immediate_float
+from src.api.tmp_labels import tmp_label
 
-from src.arch.z80.backend import errors
-
-from src.arch.z80.backend.errors import InvalidICError as InvalidIC
-from src.arch.z80.backend.runtime import Labels as RuntimeLabel
-
-from src.arch.z80.backend._8bit import _8bit_oper
-from src.arch.z80.backend._16bit import _16bit_oper
-from src.arch.z80.backend._32bit import _32bit_oper
-from src.arch.z80.backend._f16 import _f16_oper
-from src.arch.z80.backend._float import _fpush, _float_oper
-
-from src.arch.z80.backend import common
-from src.arch.z80.backend.common import tmp_label, runtime_call, Quad, get_bytes_size
-from src.arch.z80.backend.common import CALL_BACK, END_LABEL, AT_END, YY_TYPES, new_ASMID, ASMS, RE_HEXA
-from src.arch.z80.backend.common import to_fixed, to_long, to_float, to_word, to_byte
-
+from . import common, exception
+from ._8bit import Bits8
+from ._16bit import Bits16
+from ._32bit import Bits32
+from ._f16 import Fixed16
+from ._float import Float
+from .common import (
+    ASMS,
+    AT_END,
+    CALL_BACK,
+    END_LABEL,
+    RE_HEXA,
+    YY_TYPES,
+    get_bytes_size,
+    new_ASMID,
+    runtime_call,
+    to_byte,
+    to_fixed,
+    to_float,
+    to_long,
+    to_word,
+)
+from .exception import InvalidICError as InvalidIC
+from .icinstruction import ICInstruction
+from .quad import Quad
+from .runtime import Labels as RuntimeLabel
 
 # Label RegExp
 RE_LABEL = re.compile(r"^[ \t]*[a-zA-Z_][_a-zA-Z\d]*:")
 
 
-def _nop(ins):
+def _nop(ins: Quad):
     """Returns nothing. (Ignored nop)"""
     return []
 
 
-def _org(ins):
+def _org(ins: Quad):
     """Outputs an origin of code."""
-    return ["org %s" % str(ins.quad[1])]
+    return ["org %s" % str(ins[1])]
 
 
-def _exchg(ins):
+def _exchg(ins: Quad):
     """Exchange ALL registers. If the processor
     does not support this, it must be implemented saving registers in a memory
     location.
@@ -49,9 +61,9 @@ def _exchg(ins):
     return output
 
 
-def _end(ins):
+def _end(ins: Quad):
     """Outputs the ending sequence"""
-    output = _16bit_oper(ins.quad[1])
+    output = Bits16.get_oper(ins[1])
     output.append("ld b, h")
     output.append("ld c, l")
 
@@ -77,17 +89,17 @@ def _end(ins):
     return output
 
 
-def _label(ins):
+def _label(ins: Quad):
     """Defines a Label."""
-    return ["%s:" % str(ins.quad[1])]
+    return ["%s:" % str(ins[1])]
 
 
-def _deflabel(ins):
+def _deflabel(ins: Quad):
     """Defines a Label with a value."""
-    return ["%s EQU %s" % (str(ins.quad[1]), str(ins.quad[2]))]
+    return ["%s EQU %s" % (str(ins[1]), str(ins[2]))]
 
 
-def _data(ins):
+def _data(ins: Quad):
     """Defines a data item (binary).
     It's just a constant expression to be converted do binary data "as is"
 
@@ -96,8 +108,8 @@ def _data(ins):
         type required.
     """
     output = []
-    t = ins.quad[1]
-    q = eval(ins.quad[2])
+    t = ins[1]
+    q = eval(ins[2])
 
     if t in ("i8", "u8"):
         size = "B"
@@ -105,8 +117,8 @@ def _data(ins):
         size = "W"
     elif t in ("i32", "u32"):
         size = "W"
-        z = list()
-        for expr in ins.quad[2]:
+        z = []
+        for expr in ins[2]:
             z.extend(["(%s) & 0xFFFF" % expr, "(%s) >> 16" % expr])
         q = z
     elif t == "str":
@@ -118,7 +130,7 @@ def _data(ins):
             output.extend(["DEFB %s" % x[0], "DEFW %s, %s" % (x[1], x[2])])
         return output
     else:
-        raise InvalidIC(ins.quad, "Unimplemented data size %s for %s" % (t, q))
+        raise InvalidIC(ins, "Unimplemented data size %s for %s" % (t, q))
 
     for x in q:
         output.append("DEF%s %s" % (size, x))
@@ -126,16 +138,16 @@ def _data(ins):
     return output
 
 
-def _var(ins):
+def _var(ins: Quad):
     """Defines a memory variable."""
     output = []
-    output.append("%s:" % ins.quad[1])
-    output.append("DEFB %s" % ((int(ins.quad[2]) - 1) * "00, " + "00"))
+    output.append("%s:" % ins[1])
+    output.append("DEFB %s" % ((int(ins[2]) - 1) * "00, " + "00"))
 
     return output
 
 
-def _varx(ins):
+def _varx(ins: Quad):
     """Defines a memory space with a default CONSTANT expression
     1st parameter is the var name
     2nd parameter is the type-size (u8 or i8 for byte, u16 or i16 for word, etc)
@@ -143,21 +155,21 @@ def _varx(ins):
         type required.
     """
     output = []
-    output.append("%s:" % ins.quad[1])
-    q = eval(ins.quad[3])
+    output.append("%s:" % ins[1])
+    q = eval(ins[3])
 
-    if ins.quad[2] in ("i8", "u8"):
+    if ins[2] in ("i8", "u8"):
         size = "B"
-    elif ins.quad[2] in ("i16", "u16"):
+    elif ins[2] in ("i16", "u16"):
         size = "W"
-    elif ins.quad[2] in ("i32", "u32"):
+    elif ins[2] in ("i32", "u32"):
         size = "W"
-        z = list()
+        z = []
         for expr in q:
             z.extend(["(%s) & 0xFFFF" % expr, "(%s) >> 16" % expr])
         q = z
     else:
-        raise InvalidIC(ins.quad, "Unimplemented vard size: %s" % ins.quad[2])
+        raise InvalidIC(ins, "Unimplemented vard size: %s" % ins[2])
 
     for x in q:
         output.append("DEF%s %s" % (size, x))
@@ -165,9 +177,9 @@ def _varx(ins):
     return output
 
 
-def _vard(ins):
+def _vard(ins: Quad):
     """Defines a memory space with a default set of bytes/words in hexadecimal
-    (starting with an hex number) or literals (starting with #).
+    (starting with a hex number) or literals (starting with #).
     Numeric values with more than 2 digits represents a WORD (2 bytes) value.
     E.g. '01' => 01h, '001' => 1, 0 bytes (0001h)
     Literal values starts with # (1 byte) or ## (2 bytes)
@@ -175,9 +187,9 @@ def _vard(ins):
          '##(label + 1)' => (label + 1) & 0xFFFF
     """
     output = []
-    output.append("%s:" % ins.quad[1])
+    output.append("%s:" % ins[1])
 
-    q = eval(ins.quad[2])
+    q = eval(ins[2])
 
     for x in q:
         if x[0] == "#":  # literal?
@@ -191,63 +203,60 @@ def _vard(ins):
         size_t = "B" if len(x) <= 2 else "W"
         if x[0] > "9":  # Not a number?
             x = "0" + x
-        output.append("DEF{0} {1}h".format(size_t, x))
+        output.append(f"DEF{size_t} {x}h")
 
     return output
 
 
-def _lvarx(ins):
+def _lvarx(ins: Quad) -> list[str]:
     """Defines a local variable. 1st param is offset of the local variable.
     2nd param is the type a list of bytes in hexadecimal.
     """
-    output = []
+    output: list[str] = []
 
-    l = eval(ins.quad[3])  # List of bytes to push
+    l = eval(ins[3])  # List of bytes to push
     label = tmp_label()
-    offset = int(ins.quad[1])
-    tmp = list(ins.quad)
+    offset = int(ins[1])
+    tmp = list(ins)
     tmp[1] = label
-    ins.quad = tmp
+    ins = tmp
     AT_END.extend(_varx(ins))
 
-    output.append("push ix")
+    output.append(f"push {common.IDX_REG}")
     output.append("pop hl")
     output.append("ld bc, %i" % -offset)
     output.append("add hl, bc")
     output.append("ex de, hl")
     output.append("ld hl, %s" % label)
-    output.append("ld bc, %i" % (len(l) * YY_TYPES[ins.quad[2]]))
+    output.append("ld bc, %i" % (len(l) * YY_TYPES[ins[2]]))
     output.append("ldir")
 
     return output
 
 
-def _lvard(ins):
+def _lvard(ins: Quad):
     """Defines a local variable. 1st param is offset of the local variable.
     2nd param is a list of bytes in hexadecimal.
     """
     output = []
 
     label = tmp_label()
-    offset = int(ins.quad[1])
-    tmp = list(ins.quad)
-    tmp[1] = label
-    ins.quad = tmp
-    AT_END.extend(_vard(ins))
+    offset = int(ins[1])
+    AT_END.extend(_vard(Quad(ICInstruction.VARD, label, ins[2])))
 
-    output.append("push ix")
+    output.append(f"push {common.IDX_REG}")
     output.append("pop hl")
     output.append("ld bc, %i" % -offset)
     output.append("add hl, bc")
     output.append("ex de, hl")
     output.append("ld hl, %s" % label)
-    output.append("ld bc, %i" % get_bytes_size(eval(tmp[2])))
+    output.append("ld bc, %i" % get_bytes_size(eval(ins[2])))
     output.append("ldir")
 
     return output
 
 
-def _larrd(ins):
+def _larrd(ins: Quad):
     """Defines a local array.
     - 1st param is offset of the local variable.
     - 2nd param is a list of bytes in hexadecimal corresponding to the index table
@@ -258,28 +267,29 @@ def _larrd(ins):
     output = []
 
     label = tmp_label()
-    offset = int(ins.quad[1])
-    elements_size = ins.quad[3]
-    AT_END.extend(_vard(Quad("vard", label, ins.quad[2])))
+    offset = int(ins[1])
+    elements_size = ins[3]
+    AT_END.extend(_vard(Quad(ICInstruction.VARD, label, ins[2])))
 
-    bounds = eval(ins.quad[5])
+    bounds = eval(ins[5])
     if not isinstance(bounds, list) or len(bounds) not in (0, 2):
-        raise InvalidIC(ins.quad, "Bounds list length must be 0 or 2, not %s" % ins.quad[5])
+        raise InvalidIC(ins, "Bounds list length must be 0 or 2, not %s" % ins[5])
 
-    if bounds:
+    have_bounds = bounds and any(x != "0" for x in bounds)
+    if have_bounds:
         output.extend(
             [
-                "ld hl, %s" % bounds[1],
+                "ld hl, %s" % bounds[1],  # UBOUND Table PTR
                 "push hl",
-                "ld hl, %s" % bounds[0],
+                "ld hl, %s" % bounds[0],  # LBOUND Table PTR
                 "push hl",
             ]
         )
 
-    must_initialize = ins.quad[4] != "[]"
+    must_initialize = ins[4] != "[]"
     if must_initialize:
         label2 = tmp_label()
-        AT_END.extend(_vard(Quad("vard", label2, ins.quad[4])))
+        AT_END.extend(_vard(Quad(ICInstruction.VARD, label2, ins[4])))
         output.extend(["ld hl, %s" % label2, "push hl"])
 
     output.extend(
@@ -291,12 +301,12 @@ def _larrd(ins):
     )
 
     if must_initialize:
-        if not bounds:
+        if not have_bounds:
             output.append(runtime_call(RuntimeLabel.ALLOC_INITIALIZED_LOCAL_ARRAY))
         else:
             output.append(runtime_call(RuntimeLabel.ALLOC_INITIALIZED_LOCAL_ARRAY_WITH_BOUNDS))
     else:
-        if not bounds:
+        if not have_bounds:
             output.append(runtime_call(RuntimeLabel.ALLOC_LOCAL_ARRAY))
         else:
             output.append(runtime_call(RuntimeLabel.ALLOC_LOCAL_ARRAY_WITH_BOUNDS))
@@ -304,10 +314,10 @@ def _larrd(ins):
     return output
 
 
-def _out(ins):
+def _out(ins: Quad):
     """Translates OUT to asm."""
-    output = _8bit_oper(ins.quad[2])
-    output.extend(_16bit_oper(ins.quad[1]))
+    output = Bits8.get_oper(ins[2])
+    output.extend(Bits16.get_oper(ins[1]))
     output.append("ld b, h")
     output.append("ld c, l")
     output.append("out (c), a")
@@ -315,9 +325,9 @@ def _out(ins):
     return output
 
 
-def _in(ins):
+def _in(ins: Quad):
     """Translates IN to asm."""
-    output = _16bit_oper(ins.quad[1])
+    output = Bits16.get_oper(ins[1])
     output.append("ld b, h")
     output.append("ld c, l")
     output.append("in a, (c)")
@@ -326,27 +336,30 @@ def _in(ins):
     return output
 
 
-def _cast(ins):
+def _cast(ins: Quad):
     """Convert data from typeA to typeB (only numeric data types)"""
     # Signed and unsigned types are the same in the Z80
-    tA = ins.quad[2]  # From TypeA
-    tB = ins.quad[3]  # To TypeB
+    tA = ins[2]  # From TypeA
+    tB = ins[3]  # To TypeB
 
     xsB = sB = YY_TYPES[tB]  # Type sizes
 
+    if tA in ("u8", "i8") and tB == "bool":
+        return []  # bytes are booleans already (0 = False, not 0 = True)
+
     output = []
-    if tA in ("u8", "i8"):
-        output.extend(_8bit_oper(ins.quad[4]))
+    if tA in ("u8", "i8", "bool"):
+        output.extend(Bits8.get_oper(ins[4]))
     elif tA in ("u16", "i16"):
-        output.extend(_16bit_oper(ins.quad[4]))
+        output.extend(Bits16.get_oper(ins[4]))
     elif tA in ("u32", "i32"):
-        output.extend(_32bit_oper(ins.quad[4]))
+        output.extend(Bits32.get_oper(ins[4]))
     elif tA == "f16":
-        output.extend(_f16_oper(ins.quad[4]))
+        output.extend(Fixed16.get_oper(ins[4]))
     elif tA == "f":
-        output.extend(_float_oper(ins.quad[4]))
+        output.extend(Float.get_oper(ins[4]))
     else:
-        raise errors.GenericError("Internal error: invalid typecast from %s to %s" % (tA, tB))
+        raise exception.GenericError("Internal error: invalid typecast from %s to %s" % (tA, tB))
 
     if tB in ("u8", "i8"):  # It was a byte
         output.extend(to_byte(tA))
@@ -358,11 +371,13 @@ def _cast(ins):
         output.extend(to_fixed(tA))
     elif tB == "f":
         output.extend(to_float(tA))
+    else:
+        raise exception.GenericError("Internal error: invalid typecast from %s to %s" % (tA, tB))
 
     xsB += sB % 2  # make it even (round up)
 
     if xsB > 4:
-        output.extend(_fpush())
+        output.extend(Float.fpush())
     else:
         if xsB > 2:
             output.append("push de")  # Fixed or 32 bit Integer
@@ -378,31 +393,31 @@ def _cast(ins):
 # ------------------- FLOW CONTROL instructions -------------------
 
 
-def _jump(ins):
+def _jump(ins: Quad):
     """Jump to a label"""
-    return ["jp %s" % str(ins.quad[1])]
+    return ["jp %s" % str(ins[1])]
 
 
-def _ret(ins):
+def _ret(ins: Quad):
     """Returns from a procedure / function"""
-    return ["jp %s" % str(ins.quad[1])]
+    return ["jp %s" % str(ins[1])]
 
 
-def _call(ins):
+def _call(ins: Quad):
     """Calls a function XXXX (or address XXXX)
     2nd parameter contains size of the returning result if any, and will be
     pushed onto the stack.
     """
     output = []
-    output.append("call %s" % str(ins.quad[1]))
+    output.append("call %s" % str(ins[1]))
 
     try:
-        val = int(ins.quad[2])
+        val = int(ins[2])
         if val == 1:
             output.append("push af")  # Byte
         else:
             if val > 4:
-                output.extend(_fpush())
+                output.extend(Float.fpush())
             else:
                 if val > 2:
                     output.append("push de")
@@ -415,22 +430,22 @@ def _call(ins):
     return output
 
 
-def _enter(ins):
+def _enter(ins: Quad):
     """Enter function sequence for doing a function start
-    ins.quad[1] contains size (in bytes) of local variables
+    ins[1] contains size (in bytes) of local variables
     Use '__fastcall__' as 1st parameter to prepare a fastcall
     function (no local variables).
     """
     output = []
 
-    if ins.quad[1] == "__fastcall__":
+    if ins[1] == "__fastcall__":
         return output
 
-    output.append("push ix")
-    output.append("ld ix, 0")
-    output.append("add ix, sp")
+    output.append(f"push {common.IDX_REG}")
+    output.append(f"ld {common.IDX_REG}, 0")
+    output.append(f"add {common.IDX_REG}, sp")
 
-    size_bytes = int(ins.quad[1])
+    size_bytes = int(ins[1])
 
     if size_bytes != 0:
         if size_bytes < 7:
@@ -454,7 +469,7 @@ def _enter(ins):
     return output
 
 
-def _leave(ins):
+def _leave(ins: Quad):
     """Return from a function popping N bytes from the stack
     Use '__fastcall__' as 1st parameter, to just return
     """
@@ -462,30 +477,30 @@ def _leave(ins):
 
     output = []
 
-    if ins.quad[1] == "__fastcall__":
+    if ins[1] == "__fastcall__":
         output.append("ret")
         return output
 
-    nbytes = int(ins.quad[1])  # Number of bytes to pop (params size)
+    nbytes = int(ins[1])  # Number of bytes to pop (params size)
 
     if nbytes == 0:
-        output.append("ld sp, ix")
-        output.append("pop ix")
+        output.append(f"ld sp, {common.IDX_REG}")
+        output.append(f"pop {common.IDX_REG}")
         output.append("ret")
 
         return output
 
     if nbytes == 1:
-        output.append("ld sp, ix")
-        output.append("pop ix")
+        output.append(f"ld sp, {common.IDX_REG}")
+        output.append(f"pop {common.IDX_REG}")
         output.append("inc sp")  # "Pops" 1 byte
         output.append("ret")
 
         return output
 
     if nbytes <= 11:  # Number of bytes it worth the hassle to "pop" off the stack
-        output.append("ld sp, ix")
-        output.append("pop ix")
+        output.append(f"ld sp, {common.IDX_REG}")
+        output.append(f"pop {common.IDX_REG}")
         output.append("exx")
         output.append("pop hl")
         for i in range((nbytes >> 1) - 1):
@@ -505,8 +520,8 @@ def _leave(ins):
         output.append("exx")
         output.append("ld hl, %i" % nbytes)
         output.append("__EXIT_FUNCTION:")
-        output.append("ld sp, ix")
-        output.append("pop ix")
+        output.append(f"ld sp, {common.IDX_REG}")
+        output.append(f"pop {common.IDX_REG}")
         output.append("pop de")
         output.append("add hl, sp")
         output.append("ld sp, hl")
@@ -521,22 +536,22 @@ def _leave(ins):
     return output
 
 
-def _memcopy(ins):
+def _memcopy(ins: Quad):
     """Copies a block of memory from param 2 addr
     to param 1 addr.
     """
-    output = _16bit_oper(ins.quad[3])
+    output = Bits16.get_oper(ins[3])
     output.append("ld b, h")
     output.append("ld c, l")
-    output.extend(_16bit_oper(ins.quad[1], ins.quad[2], reversed=True))
+    output.extend(Bits16.get_oper(ins[1], ins[2], reversed=True))
     output.append("ldir")  # ***
 
     return output
 
 
-def _inline(ins):
+def _inline(ins: Quad):
     """Inline code"""
-    tmp = [x.strip(" \t\r") for x in ins.quad[1].split("\n")]  # Split lines
+    tmp = [x.strip(" \t\r") for x in ins[1].split("\n")]  # Split lines
 
     i = 0
     while i < len(tmp):

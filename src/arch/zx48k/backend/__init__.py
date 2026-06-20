@@ -1,38 +1,42 @@
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 from src.api.config import OPTIONS
-from src.arch.z80 import backend
+from src.arch.z80.backend import (
+    HI16,
+    INITS,
+    LO16,
+    MEMINITS,
+    REQUIRES,
+    TMP_COUNTER,
+    TMP_STORAGES,
+    Float,
+)
+from src.arch.z80.backend import Backend as Z80Backend
 
-from src.arch.z80.backend import tmp_label, _fpop, HI16, INITS, LO16, LABEL_COUNTER, MEMORY, MEMINITS
-from src.arch.z80.backend import QUADS, REQUIRES, TMP_COUNTER, TMP_STORAGES
-from src.arch.z80.backend import emit, emit_end, emit_start
-
-
-__all__ = [
-    "tmp_label",
-    "_fpop",
+__all__ = (
     "HI16",
     "INITS",
     "LO16",
-    "LABEL_COUNTER",
-    "MEMORY",
     "MEMINITS",
-    "QUADS",
     "REQUIRES",
     "TMP_COUNTER",
     "TMP_STORAGES",
-    "emit",
-    "emit_end",
-    "emit_start",
-]
+    "Backend",
+    "Float",
+)
 
 
 # ZXNext asm enabled by default for this arch
 OPTIONS.zxnext = False
 
 
-def init():
-    # ZXNext asm enabled by default for this arch
-    OPTIONS.zxnext = False
-
-    backend.init()
+class Backend(Z80Backend):
+    def init(self):
+        # ZXNext asm enabled by default for this arch
+        OPTIONS.zxnext = False
+        super().init()

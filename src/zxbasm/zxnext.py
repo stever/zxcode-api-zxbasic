@@ -1,16 +1,21 @@
-# -*- coding: utf-8 -*-
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
 __all__ = [
-    "p_mul_d_e",
-    "p_simple_instruction",
-    "p_add_reg16_a",
     "p_JP_c",
-    "p_bxxxx_de_b",
+    "p_add_reg16_a",
     "p_add_reg_NN",
-    "p_test_nn",
-    "p_nextreg_expr",
+    "p_bxxxx_de_b",
+    "p_mul_d_e",
     "p_nextreg_a",
+    "p_nextreg_expr",
     "p_push_imm",
+    "p_simple_instruction",
+    "p_test_nn",
 ]
 
 from src.zxbasm import asmparse
@@ -44,11 +49,13 @@ def p_add_reg16_a(p):
     | ADD DE COMMA A
     | ADD BC COMMA A
     """
-    p[0] = asmparse.Asm(p.lineno(1), "ADD {},A".format(p[2]))
+    p[0] = asmparse.Asm(p.lineno(1), f"ADD {p[2]},A")
 
 
 def p_JP_c(p):
-    """asm : JP LP C RP"""
+    """asm : JP LP C RP
+    | JP LB C RB
+    """
     p[0] = asmparse.Asm(p.lineno(1), "JP (C)")
 
 
@@ -59,7 +66,7 @@ def p_bxxxx_de_b(p):
     | BSRF DE COMMA B
     | BRLC DE COMMA B
     """
-    p[0] = asmparse.Asm(p.lineno(1), "{} DE,B".format(p[1]))
+    p[0] = asmparse.Asm(p.lineno(1), f"{p[1]} DE,B")
 
 
 def p_add_reg_NN(p):
@@ -70,7 +77,7 @@ def p_add_reg_NN(p):
     | ADD DE COMMA pexpr
     | ADD BC COMMA pexpr
     """
-    p[0] = asmparse.Asm(p.lineno(1), "ADD {},NN".format(p[2]), p[4])
+    p[0] = asmparse.Asm(p.lineno(1), f"ADD {p[2]},NN", p[4])
 
 
 def p_test_nn(p):

@@ -1,21 +1,20 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-# vim: ts=4:sw=4:et:
+# --------------------------------------------------------------------
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# © Copyright 2008-2024 José Manuel Rodríguez de la Rosa and contributors.
+# See the file CONTRIBUTORS.md for copyright details.
+# See https://www.gnu.org/licenses/agpl-3.0.html for details.
+# --------------------------------------------------------------------
 
-""" Class for a Table of Defines.
+"""Class for a Table of Defines.
 Each identifier has a dictionary entry.
 """
 
-import sys
 import re
-
-from typing import Dict
-from typing import Union
+import sys
 
 from . import output
-
-from .id_ import ID
 from .exceptions import PreprocError
+from .id_ import ID
 from .output import CURRENT_FILE
 
 RE_ID = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
@@ -28,7 +27,7 @@ class DefinesTable:
 
     def __init__(self):
         """Initializes table"""
-        self.table: Dict[str, ID] = {}
+        self.table: dict[str, ID] = {}
 
     def define(self, id_: str, lineno: int, value: str = "", fname: str = None, args=None):
         """Defines the value of a macro.
@@ -70,7 +69,7 @@ class DefinesTable:
         """
         return id_.strip() in self.table
 
-    def __getitem__(self, key: str) -> Union[str, ID]:
+    def __getitem__(self, key: str) -> str | ID:
         """Returns the ID instance given it's
         _id. If it does not exist, return the _id
         itself.
