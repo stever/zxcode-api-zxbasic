@@ -7,8 +7,8 @@ The downstream consumer of this service relies on a stable contract:
 An upstream bump of the bundled compiler (``src/``) can break that contract in
 three ways, each covered below:
 
-1. The CLI the wrapper shells out to changes (``python zxbc.py -taB <file>``
-   must exit 0 and write ``<stem>.tap``).  -- test_cli_contract_produces_tap
+1. The CLI the wrapper shells out to changes (``python zxbc.py -f tap -a -B
+   <file>`` must exit 0 and write ``<stem>.tap``). -- test_cli_contract_produces_tap
 2. The ``from src.zxbc import main`` symbol used by the fallback path is moved
    or renamed.                            -- test_import_main_produces_tap
 3. The emitted TAP bytes stop being a well-formed BASIC-loader tape.
@@ -61,7 +61,7 @@ def parse_tap_blocks(data: bytes):
 def assert_valid_tap(data: bytes):
     """Assert ``data`` is a well-formed TAP whose first block is a BASIC header.
 
-    Compiling with ``-taB`` (TAP + BASIC loader) must yield a tape whose first
+    Compiling with ``-f tap -a -B`` (TAP + BASIC loader) must yield a tape whose first
     block is a 19-byte header describing a BASIC program, with a valid XOR
     checksum.  This is exactly the structure the downstream consumer expects.
     """
@@ -87,7 +87,7 @@ def _write_sample(tmpdir: str) -> str:
 
 
 def test_cli_contract_produces_tap(tmp_path):
-    """The wrapper shells out to ``python zxbc.py -taB <file>``; pin that.
+    """The wrapper shells out to ``python zxbc.py -f tap -a -B <file>``; pin that.
 
     Mirrors compile.py's primary path: subprocess invocation must exit 0 and
     write ``<stem>.tap`` (the wrapper derives the output name the same way).
@@ -99,7 +99,7 @@ def test_cli_contract_produces_tap(tmp_path):
 
     try:
         proc = subprocess.run(
-            [sys.executable, "zxbc.py", "-taB", bas_filename],
+            [sys.executable, "zxbc.py", "-f", "tap", "-a", "-B", bas_filename],
             cwd=str(REPO_ROOT),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -124,7 +124,7 @@ def test_import_main_produces_tap(tmp_path, monkeypatch):
     bas_filename = _write_sample(str(tmp_path))
     tap_filename = tmp_path / f"{Path(bas_filename).stem}.tap"
 
-    main(["-taB", bas_filename])
+    main(["-f", "tap", "-a", "-B", bas_filename])
 
     assert tap_filename.exists(), "main() did not produce the expected .tap file"
     assert_valid_tap(tap_filename.read_bytes())

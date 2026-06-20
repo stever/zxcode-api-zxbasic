@@ -96,7 +96,9 @@ class ProcessMonitor:
             )
 
             for line in result.stdout.split('\n'):
-                if 'zxbc' in line and '-taB' in line:
+                # The app only ever spawns zxbc.py for compilation, so match on
+                # the script name rather than specific flags (which can change).
+                if 'zxbc.py' in line:
                     parts = line.split()
                     if len(parts) > 1:
                         pid = int(parts[1])

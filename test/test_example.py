@@ -18,7 +18,7 @@ def test_zxbasic():
         f.write('10 PRINT "Hello"')
 
     # Compile the tape file from basic source.
-    main(['-taB', bas_filename])
+    main(['-f', 'tap', '-a', '-B', bas_filename])
 
     # Read and base64 encode the binary tape file.
     tap_filename = f'{Path(bas_filename).stem}.tap'

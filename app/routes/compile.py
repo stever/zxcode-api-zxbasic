@@ -150,7 +150,7 @@ def compile_with_subprocess(bas_filename):
     try:
         # Try to run as subprocess
         proc = subprocess.Popen(
-            [sys.executable, 'zxbc.py', '-taB', bas_filename],
+            [sys.executable, 'zxbc.py', '-f', 'tap', '-a', '-B', bas_filename],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
@@ -182,7 +182,7 @@ def compile_with_subprocess(bas_filename):
         if zxbc_main:
             # Use threading approach as fallback
             try:
-                run_with_threading(zxbc_main, ['-taB', bas_filename], COMPILATION_TIMEOUT)
+                run_with_threading(zxbc_main, ['-f', 'tap', '-a', '-B', bas_filename], COMPILATION_TIMEOUT)
                 return os.path.exists(tap_filename)
             except TimeoutException:
                 raise
