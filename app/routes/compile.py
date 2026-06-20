@@ -21,6 +21,11 @@ try:
 except ImportError:
     zxbc_main = None
 
+# Path to the zxbc console script installed by the zxbasic package. Console
+# scripts live alongside the Python interpreter (e.g. the venv's bin/), so
+# resolve it from sys.executable rather than relying on PATH.
+ZXBC_EXECUTABLE = os.path.join(os.path.dirname(sys.executable), 'zxbc')
+
 
 class SessionVars(BaseModel):
     x_hasura_role: str = Field(alias="x-hasura-role")
@@ -150,7 +155,7 @@ def compile_with_subprocess(bas_filename):
     try:
         # Try to run as subprocess
         proc = subprocess.Popen(
-            [sys.executable, 'zxbc.py', '-f', 'tap', '-a', '-B', bas_filename],
+            [ZXBC_EXECUTABLE, '-f', 'tap', '-a', '-B', bas_filename],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True

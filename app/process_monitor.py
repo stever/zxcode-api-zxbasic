@@ -96,9 +96,10 @@ class ProcessMonitor:
             )
 
             for line in result.stdout.split('\n'):
-                # The app only ever spawns zxbc.py for compilation, so match on
-                # the script name rather than specific flags (which can change).
-                if 'zxbc.py' in line:
+                # The app only ever spawns the zxbc compiler for compilation, so
+                # match on the executable name rather than specific flags. The
+                # zxbasic console script appears in ps as ".../bin/zxbc".
+                if 'zxbc' in line:
                     parts = line.split()
                     if len(parts) > 1:
                         pid = int(parts[1])

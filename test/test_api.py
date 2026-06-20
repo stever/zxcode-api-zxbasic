@@ -4,11 +4,12 @@ The downstream consumer of this service relies on a stable contract:
 
     POST /compile/  ->  {"base64_encoded": "<valid ZX Spectrum TAP>"}
 
-An upstream bump of the bundled compiler (``src/``) can break that contract in
-three ways, each covered below:
+An upstream bump of the ZX Basic compiler (the ``zxbasic`` package) can break
+that contract in three ways, each covered below:
 
-1. The CLI the wrapper shells out to changes (``python zxbc.py -f tap -a -B
-   <file>`` must exit 0 and write ``<stem>.tap``). -- test_cli_contract_produces_tap
+1. The ``zxbc`` console script the wrapper shells out to changes (invoking
+   ``zxbc -f tap -a -B <file>`` must exit 0 and write ``<stem>.tap``).
+                                          -- test_cli_contract_produces_tap
 2. The ``from src.zxbc import main`` symbol used by the fallback path is moved
    or renamed.                            -- test_import_main_produces_tap
 3. The emitted TAP bytes stop being a well-formed BASIC-loader tape.
@@ -87,32 +88,30 @@ def _write_sample(tmpdir: str) -> str:
 
 
 def test_cli_contract_produces_tap(tmp_path):
-    """The wrapper shells out to ``python zxbc.py -f tap -a -B <file>``; pin that.
+    """The wrapper shells out to the ``zxbc`` console script; pin that.
 
-    Mirrors compile.py's primary path: subprocess invocation must exit 0 and
-    write ``<stem>.tap`` (the wrapper derives the output name the same way).
+    Mirrors compile.py's primary path: invoking the installed compiler must
+    exit 0 and write ``<stem>.tap`` into the working directory (the wrapper
+    derives the output name the same way).
     """
     bas_filename = _write_sample(str(tmp_path))
-    # The wrapper derives the output name as ``<stem>.tap`` relative to the
-    # process CWD (not the source dir), so the .tap lands in the run directory.
-    tap_filename = REPO_ROOT / f"{Path(bas_filename).stem}.tap"
+    tap_filename = tmp_path / f"{Path(bas_filename).stem}.tap"
+    # Console scripts live alongside the interpreter; resolve from sys.executable
+    # rather than relying on PATH, exactly as the wrapper does.
+    zxbc = os.path.join(os.path.dirname(sys.executable), "zxbc")
 
-    try:
-        proc = subprocess.run(
-            [sys.executable, "zxbc.py", "-f", "tap", "-a", "-B", bas_filename],
-            cwd=str(REPO_ROOT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30,
-        )
+    proc = subprocess.run(
+        [zxbc, "-f", "tap", "-a", "-B", bas_filename],
+        cwd=str(tmp_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=30,
+    )
 
-        assert proc.returncode == 0, f"compiler exited {proc.returncode}: {proc.stderr}"
-        assert tap_filename.exists(), "compiler did not produce the expected .tap file"
-        assert_valid_tap(tap_filename.read_bytes())
-    finally:
-        if tap_filename.exists():
-            tap_filename.unlink()
+    assert proc.returncode == 0, f"compiler exited {proc.returncode}: {proc.stderr}"
+    assert tap_filename.exists(), "compiler did not produce the expected .tap file"
+    assert_valid_tap(tap_filename.read_bytes())
 
 
 def test_import_main_produces_tap(tmp_path, monkeypatch):
@@ -137,8 +136,9 @@ def test_compile_endpoint_returns_valid_tap(monkeypatch):
     from fastapi.testclient import TestClient
     from app.main import app
 
-    # The endpoint shells out to ./zxbc.py and writes the .tap into CWD, so the
-    # server must run from the repo root (as it does in the container).
+    # The endpoint writes the .tap into the process CWD and reads it back, so
+    # run the server from a stable writable directory (the repo root, as in the
+    # container). The endpoint cleans up its own .tap afterwards.
     monkeypatch.chdir(REPO_ROOT)
 
     request_body = {
